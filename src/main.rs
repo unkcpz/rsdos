@@ -98,14 +98,14 @@ struct Config {
     compression_algorithm: String,
 }
 
-struct NewDir<'a>(&'a PathBuf);
+struct Dir<'a>(&'a PathBuf);
 
-impl<'a> NewDir<'a> {
-    fn at(self, component: &str) -> Result<Self, Error> {
+impl<'a> Dir<'a> {
+    fn new_folder(self, component: &str) -> Result<(), Error> {
         let mut sub_folder = self.0.clone();
         sub_folder.push(component);
         create_dir(&sub_folder)?;
-        Ok(self)
+        Ok(())
     }
 }
 
@@ -113,14 +113,7 @@ fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     // If container path provided, using it
     // otherwise assume the `container` folder of cwd
-    let cnt_path = match args.path {
-        Some(path) => path,
-        _ => {
-            let mut p = env::current_dir()?;
-            p.push("container");
-            p
-        }
-    };
+    let cnt_path = args.path.unwrap_or(env::current_dir()?.join("container"));
 
     match args.cmd {
         Commands::Init => {
@@ -128,7 +121,7 @@ fn main() -> anyhow::Result<()> {
             let number_entries_in_cnt = fs::read_dir(&cnt_path)
                 .or_else(|err| {
                     if err.kind() == std::io::ErrorKind::NotFound {
-                        fs::create_dir(&cnt_path).and_then(|_| fs::read_dir(&cnt_path))
+                        fs::create_dir(&cnt_path).and_then(|()| fs::read_dir(&cnt_path))
                     } else {
                         Err(err)
                     }
@@ -166,10 +159,10 @@ fn main() -> anyhow::Result<()> {
             config_file.write_all(json_string.as_bytes())?;
 
             // Create loose/pack/duplicates/sandbox folders
-            let _ = NewDir(&cnt_path).at("loose");
-            let _ = NewDir(&cnt_path).at("pack");
-            let _ = NewDir(&cnt_path).at("duplicates");
-            let _ = NewDir(&cnt_path).at("sandbox");
+            Dir(&cnt_path).new_folder("loose")?;
+            Dir(&cnt_path).new_folder("pack")?;
+            Dir(&cnt_path).new_folder("duplicates")?;
+            Dir(&cnt_path).new_folder("sandbox")?;
 
             // Create Sqlite DB for pack->idx mapping
             let mut db = cnt_path.clone();
