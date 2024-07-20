@@ -1,5 +1,11 @@
-use std::{env, fs::{self, File}, io::Write, path::{Path, PathBuf}};
-use serde::{Serialize, Deserialize};
+use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
+use std::{
+    env,
+    fs::{self, File},
+    io::Write,
+    path::{Path, PathBuf},
+};
 
 use clap::{Parser, Subcommand};
 use serde_json::to_string_pretty;
@@ -11,15 +17,24 @@ pub enum Error {
     #[error("Could not obtain the current directory")]
     CurrentDir(#[from] std::io::Error),
     #[error("Could not open data at '{}'", .path.display())]
-    IoOpen { source: std::io::Error, path: PathBuf },
+    IoOpen {
+        source: std::io::Error,
+        path: PathBuf,
+    },
     #[error("Could not write data at '{}'", .path.display())]
-    IoWrite { source: std::io::Error, path: PathBuf },
+    IoWrite {
+        source: std::io::Error,
+        path: PathBuf,
+    },
     #[error("Refusing to initialize the existing '{}' directory", .path.display())]
     DirectoryExists { path: PathBuf },
     #[error("Refusing to initialize the non-empty directory as '{}'", .path.display())]
     DirectoryNotEmpty { path: PathBuf },
     #[error("Could not create directory at '{}'", .path.display())]
-    CreateDirectory { source: std::io::Error, path: PathBuf },
+    CreateDirectory {
+        source: std::io::Error,
+        path: PathBuf,
+    },
 }
 
 /// Simple program to greet a person
@@ -50,19 +65,18 @@ enum Commands {
     AddFiles {
         /// One or more paths to files to add
         #[arg(required = true, value_name = "FILE(s)")]
-        paths: Vec<String>, 
+        paths: Vec<String>,
     },
 
     /// Optimize the storage
     Optimize {
         /// Disable compress object
-        #[arg(long, default_value_t=false)]
+        #[arg(long, default_value_t = false)]
         no_compress: bool,
 
         /// Disable vacuum the databass
-        #[arg(long, default_value_t=true)]
+        #[arg(long, default_value_t = true)]
         no_vacuum: bool,
-
         // TODO: no interactive, do without ask
     },
 }
@@ -79,7 +93,7 @@ struct Config {
     container_id: Uuid,
     container_version: u32,
     loose_prefix_len: u32,
-    pack_size_target: u64,  // bytes 
+    pack_size_target: u64, // bytes
     hash_type: String,
     compression_algorithm: String,
 }
@@ -105,7 +119,7 @@ fn main() -> anyhow::Result<()> {
             let mut p = env::current_dir()?;
             p.push("container");
             p
-        },
+        }
     };
 
     match args.cmd {
@@ -125,21 +139,21 @@ fn main() -> anyhow::Result<()> {
                 })?
                 .count();
             if number_entries_in_cnt != 0 {
-                Err(Error::DirectoryNotEmpty { path: cnt_path.clone() })?;
+                Err(Error::DirectoryNotEmpty {
+                    path: cnt_path.clone(),
+                })?;
             }
 
             create_dir(&cnt_path)?;
 
-            // XXX: check compress/decompress algo can be load?? (dos concept) useless for rust?
-            
-            // generate container_id to write into config (XXX: (dos concept) for unique but seems useless) 
+            // generate container_id to write into config (XXX: (dos concept) for unique but seems useless)
             let id = uuid::Uuid::new_v4();
-        
+
             // create config and serialize to json file
             let config = Config {
                 container_id: id,
                 container_version: CONTAINER_VERSION,
-                loose_prefix_len: LOOSE_PREFIX_LEN, 
+                loose_prefix_len: LOOSE_PREFIX_LEN,
                 pack_size_target: PACK_SIZE_TARGET,
                 hash_type: "sha256".to_string(),
                 compression_algorithm: "zlib+1".to_string(),
@@ -149,7 +163,7 @@ fn main() -> anyhow::Result<()> {
             config_path.push("config.json");
             let mut config_file = File::create(config_path)?;
             config_file.write_all(json_string.as_bytes())?;
-            
+
             // Create loose/pack/duplicates/sandbox folders
             let _ = NewDir(&cnt_path).at("loose");
             let _ = NewDir(&cnt_path).at("pack");
@@ -157,18 +171,44 @@ fn main() -> anyhow::Result<()> {
             let _ = NewDir(&cnt_path).at("sandbox");
 
             // Create Sqlite DB for pack->idx mapping
-        },
+            let mut db = cnt_path.clone();
+            db.push("packs.idx");
+
+            // Create the table if it doesn't already exist
+            let conn = Connection::open(db)?;
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS db_object (
+                    id INTEGER NOT NULL,
+                    hashkey VARCHAR NOT NULL,
+                    compressed BOOLEAN NOT NULL,
+                    size INTEGER NOT NULL,
+                    offset INTEGER NOT NULL,
+                    length INTEGER NOT NULL,
+                    pack_id INTEGER NOT NULL,
+                    PRIMARY KEY (id)
+                )",
+                [],
+            )?;
+
+            conn.execute(
+                "CREATE UNIQUE INDEX ix_db_object_hashkey ON db_object (hashkey)",
+                [],
+            )?;
+        }
         Commands::Status => {
             println!("Check status of container");
         }
         Commands::AddFiles { paths } => {
             dbg!(paths);
-        },
-        Commands::Optimize { no_compress, no_vacuum } => {
+        }
+        Commands::Optimize {
+            no_compress,
+            no_vacuum,
+        } => {
             dbg!(no_compress, no_vacuum);
         }
+        _ => todo!(), // validate/backup subcommands
     };
 
     Ok(())
 }
-
