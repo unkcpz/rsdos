@@ -150,6 +150,7 @@ fn main() -> anyhow::Result<()> {
             let id = uuid::Uuid::new_v4();
 
             // create config and serialize to json file
+            // TODO: all these should able to be set from passed input parameters
             let config = Config {
                 container_id: id,
                 container_version: CONTAINER_VERSION,
