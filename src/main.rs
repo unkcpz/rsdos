@@ -1,4 +1,8 @@
+mod config;
 mod init;
+mod status;
+mod utils;
+mod db;
 
 use std::{env, path::PathBuf};
 
@@ -16,12 +20,15 @@ struct Args {
     cmd: Commands,
 }
 
-
 #[derive(Subcommand, Debug)]
 enum Commands {
     /// Initialize container folder to store objects
-    Init,
-        
+    Init {
+        /// Pack size (in GiB)
+        #[arg(short, long, default_value_t = 4, value_name = "PACK_SIZE")]
+        pack_size: u64,
+    },
+
     /// Get the status of container
     Status,
 
@@ -45,7 +52,6 @@ enum Commands {
     },
 }
 
-
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     // If container path provided, using it
@@ -53,11 +59,11 @@ fn main() -> anyhow::Result<()> {
     let cnt_path = args.path.unwrap_or(env::current_dir()?.join("container"));
 
     match args.cmd {
-        Commands::Init => {
-            crate::init::init(&cnt_path)?;      
+        Commands::Init { pack_size } => {
+            crate::init::init(&cnt_path, pack_size)?;
         }
         Commands::Status => {
-            println!("Check status of container");
+            crate::status::status(&cnt_path)?;
         }
         Commands::AddFiles { paths } => {
             dbg!(paths);

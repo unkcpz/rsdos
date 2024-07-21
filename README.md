@@ -5,7 +5,7 @@
 ## Progress
 
 - [x] Init command
-- [ ] Status command and test on large dos
+- [x] Status command and test on large dos
 - [ ] AddFiles and then can start prepare tests cases
 - [ ] pyo3 bindings and get object iter bind
 - [ ] 1st benchmark with python dos on read behaviors
