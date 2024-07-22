@@ -1,6 +1,7 @@
 use human_bytes::human_bytes;
 use indicatif::{ProgressBar, ProgressIterator};
 use std::path::PathBuf;
+use std::time::Duration;
 
 use crate::config::{Config, CONFIG_FILE};
 use crate::db::{self, PACKS_DB};
@@ -33,6 +34,8 @@ pub fn status(cnt_path: &PathBuf) -> anyhow::Result<()> {
 
     // traverse loose
     let loose = Dir(cnt_path).at_path("loose");
+    let spinnner = ProgressBar::new_spinner().with_message("Auditing container stat ...");
+    spinnner.enable_steady_tick(Duration::from_millis(500));
     let (loose_files_count, loose_files_size) = loose
         .read_dir()?
         .filter_map(result::Result::ok)
@@ -42,7 +45,7 @@ pub fn status(cnt_path: &PathBuf) -> anyhow::Result<()> {
             path.read_dir()
                 .unwrap_or_else(|_| panic!("unable to read {}", path.to_string_lossy()))
         })
-        .progress_with(ProgressBar::new_spinner())
+        .progress_with(spinnner)
         .filter_map(result::Result::ok)
         .map(|entry| entry.path())
         .filter(|path| path.is_file())
