@@ -68,7 +68,7 @@ fn main() -> anyhow::Result<()> {
         Commands::AddFiles { paths } => {
             for path in paths {
                 if !path.is_file() {
-                    eprintln!("{} is not a file, skipped", path.display());
+                    eprintln!("Error: {} is not a file, skipped", path.display());
                     continue;
                 }
 

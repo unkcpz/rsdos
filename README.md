@@ -6,7 +6,8 @@
 
 - [x] Init command
 - [x] Status command and test on large dos
-- [ ] AddFiles and then can start prepare tests cases
+- [x] AddFiles and then can start prepare tests cases
+- [ ] Prepare test using stream to loose and test on init/status/add-files
 - [ ] pyo3 bindings and get object iter bind
 - [ ] 1st benchmark with python dos on read behaviors
 - [ ] optimize

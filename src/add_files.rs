@@ -1,4 +1,5 @@
 use crate::utils::Dir;
+use human_bytes::human_bytes;
 use anyhow::Context;
 use sha2::{Digest, Sha256};
 use std::{
@@ -40,7 +41,7 @@ where
     }
 }
 
-/// Copy by chunk and return the size of content that copied
+/// Copy by chunk (``chunk_size`` in unit bytes) and return the size of content that copied
 fn copy_by_chunk<R: Read, W: Write>(
     reader: &mut R,
     writer: &mut W,
@@ -72,10 +73,10 @@ pub fn add_file(file: &PathBuf, cnt_path: &PathBuf) -> anyhow::Result<()> {
 
     // Race here if file changes in between stat and open, the source may changed
     // in the end of add check the size from stat and copied is identical.
-    let file = fs::File::open(file).with_context(|| format!("open {} for read", file.display()))?;
-    let mut source = BufReader::new(file);
+    let source = fs::File::open(file).with_context(|| format!("open {} for read", file.display()))?;
+    let mut source = BufReader::new(source);
 
-    let bytes_streamd = stream_to_loose(&mut source, cnt_path)?;
+    let (bytes_streamd, hash_hex) = stream_to_loose(&mut source, cnt_path)?;
 
     anyhow::ensure!(
         bytes_streamd == expected_size,
@@ -85,10 +86,14 @@ pub fn add_file(file: &PathBuf, cnt_path: &PathBuf) -> anyhow::Result<()> {
         )
     );
 
+    println!("{} - {}: {}", hash_hex, file.display(), human_bytes(expected_size as f64));
+
     Ok(())
 }
 
-pub fn stream_to_loose<R>(source: &mut R, cnt_path: &PathBuf) -> anyhow::Result<u64> where R: Read {
+// TODO: abstract cnt_path to container struct and add validation before calling the fn. 
+// Otherwise error raise if sandbox/ or loose/ not exist.
+pub fn stream_to_loose<R>(source: &mut R, cnt_path: &PathBuf) -> anyhow::Result<(u64, String)> where R: Read {
     // stream file to loose object store
     // TODO: let object = Object::blob_from_file(file)
 
@@ -118,5 +123,5 @@ pub fn stream_to_loose<R>(source: &mut R, cnt_path: &PathBuf) -> anyhow::Result<
     fs::rename(&dst, &loose_dst)
         .with_context(|| format!("move from {} to {}", dst.display(), loose_dst.display()))?;
 
-    Ok(bytes_copied as u64)
+    Ok((bytes_copied as u64, hash_hex))
 }
