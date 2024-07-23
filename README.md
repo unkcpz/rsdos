@@ -8,12 +8,15 @@
 - [x] Status command and test on large dos
 - [x] AddFiles and then can start prepare tests cases
 - [ ] Prepare test using stream to loose and test on init/status/add-files
+- [ ] Read APIs: has_objects, get_object_hash, get_folder, get_object_stream, get_objects_stream_and_meta, list_all_objects
 - [ ] pyo3 bindings and get object iter bind
 - [ ] 1st benchmark with python dos on read behaviors
+- [ ] Pack read and Pack write
+- [ ] 2nd benchmark on Pack read/write
 - [ ] optimize
 - [ ] validate
 - [ ] backup
-- [ ] 2nd benchmark on optimize/validate/backup ...
+- [ ] 3rd benchmark on optimize/validate/backup ...
 
 ## Design
 

@@ -40,7 +40,7 @@ pub fn status(cnt_path: &PathBuf) -> anyhow::Result<()> {
         .read_dir()?
         .filter_map(result::Result::ok)
         .map(|entry| entry.path())
-        .filter(|path| path.is_dir())
+        // .filter(|path| path.is_dir()) // NOTE: this slow down the bin by ~10 % of system time.
         .flat_map(|path| {
             path.read_dir()
                 .unwrap_or_else(|_| panic!("unable to read {}", path.to_string_lossy()))
@@ -48,7 +48,7 @@ pub fn status(cnt_path: &PathBuf) -> anyhow::Result<()> {
         .progress_with(spinnner)
         .filter_map(result::Result::ok)
         .map(|entry| entry.path())
-        .filter(|path| path.is_file())
+        // .filter(|path| path.is_file())
         .fold((0, 0), |(count, size), path| match fs::metadata(path) {
             Ok(stat) => (count + 1, size + stat.len()),
             Err(_) => (count, size),
@@ -63,7 +63,7 @@ pub fn status(cnt_path: &PathBuf) -> anyhow::Result<()> {
         .read_dir()?
         .filter_map(result::Result::ok)
         .map(|entry| entry.path())
-        .filter(|path| path.is_file())
+        // .filter(|path| path.is_file())
         .fold((0, 0), |(count, size), path| match fs::metadata(path) {
             Ok(stat) => (count + 1, size + stat.len()),
             Err(_) => (count, size),
