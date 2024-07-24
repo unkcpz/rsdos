@@ -1,11 +1,7 @@
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 use human_bytes::human_bytes;
-use std::{
-    env,
-    fmt::Debug,
-    path::PathBuf,
-};
+use std::{env, fmt::Debug, path::PathBuf};
 
 use std::io::{self, Write};
 
@@ -109,18 +105,25 @@ fn main() -> anyhow::Result<()> {
             dbg!(no_compress, no_vacuum);
         }
         Commands::CatFile { object_hash } => {
-            let mut obj = disk_objectstore::Object::from_hash(&object_hash, &cnt_path)?;
-            let n = std::io::copy(&mut obj.reader, &mut std::io::stdout())
-                .with_context(|| "write object to stdout")?;
+            let obj = disk_objectstore::Object::from_hash(&object_hash, &cnt_path)?;
+            match obj {
+                Some(mut obj) => {
+                    let n = std::io::copy(&mut obj.reader, &mut std::io::stdout())
+                        .with_context(|| "write object to stdout")?;
 
-            anyhow::ensure!(
-                n == obj.expected_size,
-                "file was not the expecwed size, expected: {}, got: {}",
-                obj.expected_size,
-                n
-            );
+                    anyhow::ensure!(
+                        n == obj.expected_size,
+                        "file was not the expecwed size, expected: {}, got: {}",
+                        obj.expected_size,
+                        n
+                    );
+                }
+                _ => {
+                    eprintln!("object {} not found in {}", object_hash, cnt_path.display());
+                }
+            }
         }
-        _ => todo!(), // validate/backup subcommands
+        // TODO: validate/backup subcommands
     };
 
     Ok(())

@@ -71,10 +71,10 @@ fn lifecycle2() {
     let hash_hex = dos::add_file(&fp.to_path_buf(), &cnt_path).expect("unable to add file {i}");
 
     // get obj by hash_hex
-    let mut obj = dos::Object::from_hash(&hash_hex, &cnt_path).expect("get object from hash");
+    let obj = dos::Object::from_hash(&hash_hex, &cnt_path).expect("get object from hash");
 
     let mut content = String::new();
-    obj.reader.read_to_string(&mut content).unwrap();
+    obj.unwrap().reader.read_to_string(&mut content).unwrap();
 
     assert_eq!(content, "test x\n".to_string());
 }
