@@ -30,6 +30,7 @@ pub fn create(db: &PathBuf) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Counting number of packed objects and ``total_size`` if they were loose objects
 pub fn stats(db: &PathBuf) -> anyhow::Result<(u64, u64)> {
     let conn = Connection::open(db)
         .with_context(|| format!("Open db {} for audit", db.to_string_lossy()))?;

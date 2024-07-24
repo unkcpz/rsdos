@@ -1,5 +1,9 @@
+use anyhow::Context;
 use clap::{Parser, Subcommand};
-use std::{env, fmt::Debug, path::PathBuf};
+use std::{env, fmt::Debug, path::PathBuf, io};
+use human_bytes::human_bytes;
+
+use std::io::Write;
 
 /// Simple program to greet a person
 #[derive(Parser, Debug)]
@@ -53,10 +57,30 @@ fn main() -> anyhow::Result<()> {
 
     match args.cmd {
         Commands::Init { pack_size } => {
-            disk_objectstore::init::init(&cnt_path, pack_size)?;
+            disk_objectstore::init(&cnt_path, pack_size)?;
         }
         Commands::Status => {
-            disk_objectstore::status::status(&cnt_path)?;
+            let info = disk_objectstore::stat(&cnt_path).with_context(|| "unable to get container stat")?;
+            // print status to stdout
+            let state = String::new()
+                        // container info
+                        + "[container]\n"
+                        + &format!("Location = {}\n", info.location)
+                        + &format!("Id = {}\n", info.id)
+                        + &format!("ZipAlgo = {}\n", info.compression_algorithm)
+                        // count
+                        + "\n[container.count]\n"
+                        + &format!("Loose = {}\n", info.count.loose)
+                        + &format!("Packes = {}\n", info.count.packs)
+                        + &format!("Pack Files = {}\n", info.count.packs_file)
+                        // size
+                        + "\n[container.size]\n"
+                        + &format!("Loose = {}\n", human_bytes(info.size.loose as f64))
+                        + &format!("Packs = {}\n", human_bytes(info.size.packs as f64))
+                        + &format!("Packs Files = {}\n", human_bytes(info.size.packs_file as f64))
+                        + &format!("Packs DB = {}\n", human_bytes(info.size.packs_db as f64));
+
+            io::stdout().write_all(state.as_bytes())?;
         }
         Commands::AddFiles { paths } => {
             for path in paths {
@@ -65,7 +89,7 @@ fn main() -> anyhow::Result<()> {
                     continue;
                 }
 
-                disk_objectstore::add_files::add_file(&path, &cnt_path)?;
+                disk_objectstore::add_file(&path, &cnt_path)?;
             }
         }
         Commands::Optimize {
@@ -79,4 +103,3 @@ fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
-

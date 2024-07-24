@@ -60,7 +60,7 @@ pub fn init(cnt_path: &PathBuf, pack_size: u64) -> anyhow::Result<()> {
 
     // Create loose/pack/duplicates/sandbox folders
     Dir(cnt_path).new_folder("loose")?;
-    Dir(cnt_path).new_folder("pack")?;
+    Dir(cnt_path).new_folder("packs")?;
     Dir(cnt_path).new_folder("duplicates")?;
     Dir(cnt_path).new_folder("sandbox")?;
 
@@ -87,7 +87,7 @@ mod tests {
         for entry in cnt_path.read_dir()? {
             let path = entry?.path();
             match path.file_name().unwrap().to_str().unwrap() {
-                "loose" | "pack" | "duplicates" | "sandbox" => assert!(path.is_dir()),
+                "loose" | "packs" | "duplicates" | "sandbox" => assert!(path.is_dir()),
                 "config.json" | "packs.idx" => assert!(path.is_file()),
                 _ => unreachable!("unknow path {}", path.display()),
             }

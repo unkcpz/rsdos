@@ -1,13 +1,12 @@
 use crate::utils::Dir;
-use human_bytes::human_bytes;
 use anyhow::Context;
+use human_bytes::human_bytes;
 use sha2::{Digest, Sha256};
 use std::{
     fs,
     io::{self, BufReader, BufWriter, Read, Write},
     path::PathBuf,
 };
-
 
 #[derive(Default)]
 struct HashWriter<W, H> {
@@ -73,7 +72,8 @@ pub fn add_file(file: &PathBuf, cnt_path: &PathBuf) -> anyhow::Result<()> {
 
     // Race here if file changes in between stat and open, the source may changed
     // in the end of add check the size from stat and copied is identical.
-    let source = fs::File::open(file).with_context(|| format!("open {} for read", file.display()))?;
+    let source =
+        fs::File::open(file).with_context(|| format!("open {} for read", file.display()))?;
     let mut source = BufReader::new(source);
 
     let (bytes_streamd, hash_hex) = stream_to_loose(&mut source, cnt_path)?;
@@ -86,14 +86,22 @@ pub fn add_file(file: &PathBuf, cnt_path: &PathBuf) -> anyhow::Result<()> {
         )
     );
 
-    println!("{} - {}: {}", hash_hex, file.display(), human_bytes(expected_size as f64));
+    println!(
+        "{} - {}: {}",
+        hash_hex,
+        file.display(),
+        human_bytes(expected_size as f64)
+    );
 
     Ok(())
 }
 
-// TODO: abstract cnt_path to container struct and add validation before calling the fn. 
+// TODO: abstract cnt_path to container struct and add validation before calling the fn.
 // Otherwise error raise if sandbox/ or loose/ not exist.
-pub fn stream_to_loose<R>(source: &mut R, cnt_path: &PathBuf) -> anyhow::Result<(u64, String)> where R: Read {
+pub fn stream_to_loose<R>(source: &mut R, cnt_path: &PathBuf) -> anyhow::Result<(u64, String)>
+where
+    R: Read,
+{
     // stream file to loose object store
     // TODO: let object = Object::blob_from_file(file)
 
@@ -116,12 +124,15 @@ pub fn stream_to_loose<R>(source: &mut R, cnt_path: &PathBuf) -> anyhow::Result<
     let hash = hwriter.hasher.finalize();
     let hash_hex = hex::encode(hash);
 
-
     let loose = Dir(cnt_path).at_path("loose");
     fs::create_dir_all(loose.join(format!("{}/", &hash_hex[..2])))?;
     let loose_dst = loose.join(format!("{}/{}", &hash_hex[..2], &hash_hex[2..]));
-    fs::rename(&dst, &loose_dst)
-        .with_context(|| format!("move from {} to {}", dst.display(), loose_dst.display()))?;
+
+    // avoid move if duplicate exist to reduce overhead
+    if !loose_dst.exists() {
+        fs::rename(&dst, &loose_dst)
+            .with_context(|| format!("move from {} to {}", dst.display(), loose_dst.display()))?;
+    }
 
     Ok((bytes_copied as u64, hash_hex))
 }

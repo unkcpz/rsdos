@@ -7,7 +7,7 @@
 - [x] Init command
 - [x] Status command and test on large dos
 - [x] AddFiles and then can start prepare tests cases
-- [ ] Prepare test using stream to loose and test on init/status/add-files
+- [x] Prepare test using stream to loose and test on init/status/add-files
 - [ ] Read APIs: has_objects, get_object_hash, get_folder, get_object_stream, get_objects_stream_and_meta, list_all_objects
 - [ ] pyo3 bindings and get object iter bind
 - [ ] 1st benchmark with python dos on read behaviors
@@ -45,3 +45,7 @@ Because of that, it is also consider to add timeout to the file operations.
 - [ ] curl
 - [ ] python library and bin
 - [ ] apt/pacman/brew
+
+## Performance note
+
+- When add duplicate file, if add a file that has same content, will skip the move operation. 

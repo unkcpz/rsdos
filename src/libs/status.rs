@@ -1,5 +1,6 @@
-use human_bytes::human_bytes;
+use anyhow::Context;
 use indicatif::{ProgressBar, ProgressIterator};
+use std::{fs, io, result};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -7,10 +8,32 @@ use crate::config::{Config, CONFIG_FILE};
 use crate::db::{self, PACKS_DB};
 use crate::utils::{Dir, Error};
 
-use std::io::Write;
-use std::{fs, io, result};
 
-pub fn status(cnt_path: &PathBuf) -> anyhow::Result<()> {
+#[derive(Debug)]
+pub struct ContainerInfo {
+    pub location: String,
+    pub id: String,
+    pub compression_algorithm: String,
+    pub count: CountInfo,
+    pub size: SizeInfo,
+}
+
+#[derive(Debug)]
+pub struct CountInfo {
+    pub loose: u64,
+    pub packs: u64,
+    pub packs_file: u64,
+}
+
+#[derive(Debug)]
+pub struct SizeInfo {
+    pub loose: u64,
+    pub packs: u64,
+    pub packs_file: u64,
+    pub packs_db: u64,
+}
+
+pub fn stat(cnt_path: &PathBuf) -> anyhow::Result<ContainerInfo> {
     // Check cnt_path is exist
     if !cnt_path.is_dir() {
         Err(Error::ObtainContainerDir {
@@ -55,12 +78,14 @@ pub fn status(cnt_path: &PathBuf) -> anyhow::Result<()> {
         });
 
     // traverse packs
-    let packs = Dir(cnt_path).at_path("packs");
-    let packs_db_size = fs::metadata(&packs)?.len();
-    let (packed_count, packed_size) = db::stats(&Dir(cnt_path).at_path(PACKS_DB))?;
+    let packs_db = Dir(cnt_path).at_path(PACKS_DB);
+    let packs_db_size = fs::metadata(&packs_db)?.len();
+    let (packs_count, packs_size) = db::stats(&packs_db)?;
 
-    let (pack_files_count, packed_files_size) = packs
-        .read_dir()?
+    let packs = Dir(cnt_path).at_path("packs");
+    let (packs_file_count, packs_file_size) = packs
+        .read_dir()
+        .with_context(|| format!("not able to read dir {}", packs.display()))?
         .filter_map(result::Result::ok)
         .map(|entry| entry.path())
         // .filter(|path| path.is_file())
@@ -68,26 +93,21 @@ pub fn status(cnt_path: &PathBuf) -> anyhow::Result<()> {
             Ok(stat) => (count + 1, size + stat.len()),
             Err(_) => (count, size),
         });
-    
-    // print status to stdout
-    let state = String::new()
-                // container info
-                + "[container]\n"
-                + &format!("Path = {}\n", cnt_path.display())
-                + &format!("Id = {}\n", config.container_id)
-                + &format!("ZipAlgo = {}\n", config.compression_algorithm)
-                // count
-                + "\n[container.count]\n"
-                + &format!("Loose = {loose_files_count}\n")
-                + &format!("Packed = {packed_count}\n")
-                + &format!("Pack Files = {pack_files_count}\n")
-                // size
-                + "\n[container.size]\n"
-                + &format!("Loose = {}\n", human_bytes(loose_files_size as f64))
-                + &format!("Packed = {}\n", human_bytes(packed_size as f64))
-                + &format!("Packed Files = {}\n", human_bytes(packed_files_size as f64))
-                + &format!("Packs DB = {}\n", human_bytes(packs_db_size as f64));
-    io::stdout().write_all(state.as_bytes())?;
 
-    Ok(())
+    Ok(ContainerInfo {
+        location: cnt_path.display().to_string(),
+        id: config.container_id.to_string(),
+        compression_algorithm: config.compression_algorithm,
+        count: CountInfo {
+            loose: loose_files_count,
+            packs: packs_count,
+            packs_file: packs_file_count,
+        },
+        size: SizeInfo {
+            loose: loose_files_size,
+            packs: packs_size,
+            packs_file: packs_file_size,
+            packs_db: packs_db_size,
+        },
+    })
 }
