@@ -18,3 +18,8 @@ pub use crate::status::stat;
 #[path = "libs/init.rs"]
 pub mod init;
 pub use crate::init::init;
+
+#[path ="libs/object.rs"]
+pub mod object;
+pub use crate::object::Object;
+

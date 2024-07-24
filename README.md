@@ -49,3 +49,16 @@ Because of that, it is also consider to add timeout to the file operations.
 ## Performance note
 
 - When add duplicate file, if add a file that has same content, will skip the move operation. 
+
+### Improvement
+
+
+### Why legacy-dos is slow
+
+#### Python 
+
+....
+
+#### More
+
+- When read from hashkey, store the handler and meta which require allocation, and increase the cache miss.

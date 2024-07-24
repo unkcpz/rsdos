@@ -66,7 +66,7 @@ fn copy_by_chunk<R: Read, W: Write>(
     Ok(total_bytes_copied)
 }
 
-pub fn add_file(file: &PathBuf, cnt_path: &PathBuf) -> anyhow::Result<()> {
+pub fn add_file(file: &PathBuf, cnt_path: &PathBuf) -> anyhow::Result<String> {
     let stat = fs::metadata(file).with_context(|| format!("stat {}", file.display()))?;
     let expected_size = stat.len();
 
@@ -93,7 +93,7 @@ pub fn add_file(file: &PathBuf, cnt_path: &PathBuf) -> anyhow::Result<()> {
         human_bytes(expected_size as f64)
     );
 
-    Ok(())
+    Ok(hash_hex)
 }
 
 // TODO: abstract cnt_path to container struct and add validation before calling the fn.
@@ -114,6 +114,7 @@ where
         fs::File::create(&dst).with_context(|| format!("open {} for write", dst.display()))?;
     let writer = BufWriter::new(writer);
 
+    // TODO: hasher can be passed as ref and using reset to avoid re-alloc in heap
     let hasher = Sha256::new();
     let mut hwriter = HashWriter::new(writer, hasher);
 

@@ -1,9 +1,13 @@
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use std::{env, fmt::Debug, path::PathBuf, io};
 use human_bytes::human_bytes;
+use std::{
+    env,
+    fmt::Debug,
+    path::PathBuf,
+};
 
-use std::io::Write;
+use std::io::{self, Write};
 
 /// Simple program to greet a person
 #[derive(Parser, Debug)]
@@ -47,6 +51,11 @@ enum Commands {
         no_vacuum: bool,
         // TODO: no interactive, do without ask
     },
+
+    CatFile {
+        #[arg(required = true)]
+        object_hash: String,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -60,7 +69,8 @@ fn main() -> anyhow::Result<()> {
             disk_objectstore::init(&cnt_path, pack_size)?;
         }
         Commands::Status => {
-            let info = disk_objectstore::stat(&cnt_path).with_context(|| "unable to get container stat")?;
+            let info = disk_objectstore::stat(&cnt_path)
+                .with_context(|| "unable to get container stat")?;
             // print status to stdout
             let state = String::new()
                         // container info
@@ -97,6 +107,18 @@ fn main() -> anyhow::Result<()> {
             no_vacuum,
         } => {
             dbg!(no_compress, no_vacuum);
+        }
+        Commands::CatFile { object_hash } => {
+            let mut obj = disk_objectstore::Object::from_hash(&object_hash, &cnt_path)?;
+            let n = std::io::copy(&mut obj.reader, &mut std::io::stdout())
+                .with_context(|| "write object to stdout")?;
+
+            anyhow::ensure!(
+                n == obj.expected_size,
+                "file was not the expecwed size, expected: {}, got: {}",
+                obj.expected_size,
+                n
+            );
         }
         _ => todo!(), // validate/backup subcommands
     };
