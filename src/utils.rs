@@ -17,7 +17,7 @@ pub enum Error {
         source: std::io::Error,
         path: PathBuf,
     },
-    #[error("Refusing to initialize the non-empty directory as '{}'", .path.display())]
+    #[error("Refusing to initialize in non-empty directory as '{}'", .path.display())]
     DirectoryNotEmpty { path: PathBuf },
     #[error("Could not create directory at '{}'", .path.display())]
     CreateDirectory {

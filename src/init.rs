@@ -13,6 +13,7 @@ use std::{
 const CONTAINER_VERSION: u32 = 1;
 const LOOSE_PREFIX_LEN: u32 = 2;
 
+// TODO: using Container struct to deal with path convert so to use AsRef<Path>
 pub fn init(cnt_path: &PathBuf, pack_size: u64) -> anyhow::Result<()> {
     let number_entries_in_cnt = fs::read_dir(cnt_path)
         .or_else(|err| {
@@ -24,12 +25,12 @@ pub fn init(cnt_path: &PathBuf, pack_size: u64) -> anyhow::Result<()> {
         })
         .map_err(|err| Error::IoOpen {
             source: err,
-            path: cnt_path.clone(),
+            path: cnt_path.to_owned(),
         })?
         .count();
     if number_entries_in_cnt != 0 {
         Err(Error::DirectoryNotEmpty {
-            path: cnt_path.clone(),
+            path: cnt_path.to_owned(),
         })?;
     }
 
@@ -66,7 +67,47 @@ pub fn init(cnt_path: &PathBuf, pack_size: u64) -> anyhow::Result<()> {
     // Create Sqlite DB for pack->idx mapping
     let db = Dir(cnt_path).at_path(PACKS_DB);
 
-    create(&db).with_context(|| format!("create db at {}", db.to_string_lossy()))?;
+    create(&db).with_context(|| format!("create db at {}", db.display()))?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use tempfile::tempdir;
+
+    use super::*;
+
+    #[test]
+    fn default_init() -> anyhow::Result<()> {
+        let cnt = tempdir()?;
+        let cnt_path = cnt.into_path();
+        init(&cnt_path, 4)?;
+
+        for entry in cnt_path.read_dir()? {
+            let path = entry?.path();
+            match path.file_name().unwrap().to_str().unwrap() {
+                "loose" | "pack" | "duplicates" | "sandbox" => assert!(path.is_dir()),
+                "config.json" | "packs.idx" => assert!(path.is_file()),
+                _ => unreachable!("unknow path {}", path.display()),
+            }
+        }
+
+        fs::remove_dir_all(cnt_path)?;
+        Ok(())
+    }
+
+    #[test]
+    fn init_in_non_empty_folder() {
+        let cnt = tempdir().unwrap();
+        // TODO: I should able to use Path so donot need to clean in the end by my self
+        let cnt_path = cnt.into_path();
+        let _ = fs::File::create(cnt_path.clone().join("unexpected"));
+        let err = init(&cnt_path, 4).unwrap_err();
+        assert!(err
+            .to_string()
+            .starts_with("Refusing to initialize in non-empty directory"));
+
+        fs::remove_dir_all(cnt_path).unwrap();
+    }
 }
