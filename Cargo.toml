@@ -22,3 +22,7 @@ uuid = { version = "1.10.0", features = ["serde", "v4"] }
 [[bin]]
 name = "rdos"
 path = "src/main.rs"
+
+[lib]
+name = "disk_objectstore"
+path = "src/lib.rs"

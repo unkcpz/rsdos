@@ -1,10 +1,3 @@
-mod add_files;
-mod config;
-mod db;
-mod init;
-mod status;
-mod utils;
-
 use clap::{Parser, Subcommand};
 use std::{env, fmt::Debug, path::PathBuf};
 
@@ -60,10 +53,10 @@ fn main() -> anyhow::Result<()> {
 
     match args.cmd {
         Commands::Init { pack_size } => {
-            crate::init::init(&cnt_path, pack_size)?;
+            disk_objectstore::init::init(&cnt_path, pack_size)?;
         }
         Commands::Status => {
-            crate::status::status(&cnt_path)?;
+            disk_objectstore::status::status(&cnt_path)?;
         }
         Commands::AddFiles { paths } => {
             for path in paths {
@@ -72,7 +65,7 @@ fn main() -> anyhow::Result<()> {
                     continue;
                 }
 
-                crate::add_files::add_file(&path, &cnt_path)?;
+                disk_objectstore::add_files::add_file(&path, &cnt_path)?;
             }
         }
         Commands::Optimize {
@@ -86,3 +79,4 @@ fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
+
