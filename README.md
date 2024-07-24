@@ -8,7 +8,8 @@
 - [x] Status command and test on large dos
 - [x] AddFiles and then can start prepare tests cases
 - [x] Prepare test using stream to loose and test on init/status/add-files
-- [ ] Read APIs: has_objects, get_object_hash, get_folder, get_object_stream, get_objects_stream_and_meta, list_all_objects
+- [x] Read APIs: has_objects, get_object_hash, get_folder, get_object_stream, get_objects_stream_and_meta, list_all_objects
+- [ ] Container as an struct
 - [ ] pyo3 bindings and get object iter bind
 - [ ] 1st benchmark with python dos on read behaviors
 - [ ] Pack read and Pack write
