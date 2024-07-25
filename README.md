@@ -1,6 +1,6 @@
-# disk-objectstore-rs
+# rsdos
 
-[`disk-objectstore`](https://github.com/aiidateam/disk-objectstore) reimplemented in Rust.
+(R)u(s)ty implementation of [`(d)isk-(o)bject(s)tore`](https://github.com/aiidateam/disk-objectstore).
 
 ## Progress
 
@@ -55,6 +55,9 @@ Because of that, it is also consider to add timeout to the file operations.
 
 ### Improvement
 
+- close db session is managed by the scope. in legacy dos need to close with container manually.
+- how git manage repack: https://github.blog/open-source/git/scaling-monorepo-maintenance/#geometric-repacking
+- gixoxide: https://github.com/Byron/gitoxide/blob/1a979221793a63cfc092e7e0c64854f8182cfaf0/etc/discovery/odb.md?plain=1#L172 
 
 ### Why legacy-dos is slow
 
