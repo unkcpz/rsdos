@@ -1,4 +1,4 @@
-use crate::utils::Dir;
+use crate::Container;
 use anyhow::Context;
 use human_bytes::human_bytes;
 use sha2::{Digest, Sha256};
@@ -66,7 +66,7 @@ fn copy_by_chunk<R: Read, W: Write>(
     Ok(total_bytes_copied)
 }
 
-pub fn add_file(file: &PathBuf, cnt_path: &PathBuf) -> anyhow::Result<String> {
+pub fn add_file(file: &PathBuf, cnt: &Container) -> anyhow::Result<String> {
     let stat = fs::metadata(file).with_context(|| format!("stat {}", file.display()))?;
     let expected_size = stat.len();
 
@@ -76,7 +76,7 @@ pub fn add_file(file: &PathBuf, cnt_path: &PathBuf) -> anyhow::Result<String> {
         fs::File::open(file).with_context(|| format!("open {} for read", file.display()))?;
     let mut source = BufReader::new(source);
 
-    let (bytes_streamd, hash_hex) = stream_to_loose(&mut source, cnt_path)?;
+    let (bytes_streamd, hash_hex) = stream_to_loose(&mut source, cnt)?;
 
     anyhow::ensure!(
         bytes_streamd == expected_size,
@@ -96,9 +96,7 @@ pub fn add_file(file: &PathBuf, cnt_path: &PathBuf) -> anyhow::Result<String> {
     Ok(hash_hex)
 }
 
-// TODO: abstract cnt_path to container struct and add validation before calling the fn.
-// Otherwise error raise if sandbox/ or loose/ not exist.
-pub fn stream_to_loose<R>(source: &mut R, cnt_path: &PathBuf) -> anyhow::Result<(u64, String)>
+pub fn stream_to_loose<R>(source: &mut R, cnt: &Container) -> anyhow::Result<(u64, String)>
 where
     R: Read,
 {
@@ -109,7 +107,7 @@ where
 
     // <cnt_path>/sandbox/<uuid> as dst
     let dst = format!("{}.tmp", uuid::Uuid::new_v4());
-    let dst = Dir(cnt_path).at_path("sandbox").join(dst);
+    let dst = cnt.sandbox()?.join(&dst);
     let writer =
         fs::File::create(&dst).with_context(|| format!("open {} for write", dst.display()))?;
     let writer = BufWriter::new(writer);
@@ -125,7 +123,7 @@ where
     let hash = hwriter.hasher.finalize();
     let hash_hex = hex::encode(hash);
 
-    let loose = Dir(cnt_path).at_path("loose");
+    let loose = cnt.loose()?;
     fs::create_dir_all(loose.join(format!("{}/", &hash_hex[..2])))?;
     let loose_dst = loose.join(format!("{}/{}", &hash_hex[..2], &hash_hex[2..]));
 

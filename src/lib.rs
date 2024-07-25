@@ -1,5 +1,6 @@
 #[path = "libs/config.rs"]
 pub mod config;
+pub use crate::config::Config;
 
 #[path = "libs/db.rs"]
 pub mod db;
@@ -15,11 +16,10 @@ pub use crate::add_file::add_file;
 pub mod status;
 pub use crate::status::stat;
 
-#[path = "libs/init.rs"]
-pub mod init;
-pub use crate::init::init;
-
 #[path ="libs/object.rs"]
 pub mod object;
 pub use crate::object::Object;
 
+#[path ="libs/container.rs"]
+pub mod container;
+pub use crate::container::Container;

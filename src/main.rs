@@ -1,8 +1,10 @@
 use anyhow::Context;
 use clap::{Parser, Subcommand};
+use dos::{config::Config, utils::create_dir, Container};
 use human_bytes::human_bytes;
 use std::{env, fmt::Debug, path::PathBuf};
 
+use disk_objectstore as dos;
 use std::io::{self, Write};
 
 /// Simple program to greet a person
@@ -62,11 +64,29 @@ fn main() -> anyhow::Result<()> {
 
     match args.cmd {
         Commands::Init { pack_size } => {
-            disk_objectstore::init(&cnt_path, pack_size)?;
+            // if target not exist create folder
+            if !cnt_path.exists() {
+                create_dir(&cnt_path)?;
+            }
+
+            let config = Config::new(pack_size);
+            let cnt = Container::new(&cnt_path);
+            cnt.initialize(&config).with_context(|| {
+                format!("unable to initialize container at {}", cnt.path.display())
+            })?;
         }
         Commands::Status => {
-            let info = disk_objectstore::stat(&cnt_path)
-                .with_context(|| "unable to get container stat")?;
+            let cnt = Container::new(&cnt_path);
+            let cnt = match cnt.validate() {
+                Ok(cnt) => cnt,
+                Err(e) => anyhow::bail!(e)
+            };
+
+            if cnt.is_empty()? {
+                anyhow::bail!("not initialized")
+            }
+
+            let info = dos::stat(cnt).with_context(|| "unable to get container stat")?;
             // print status to stdout
             let state = String::new()
                         // container info
@@ -89,13 +109,23 @@ fn main() -> anyhow::Result<()> {
             io::stdout().write_all(state.as_bytes())?;
         }
         Commands::AddFiles { paths } => {
+            let cnt = Container::new(&cnt_path);
+            let cnt = match cnt.validate() {
+                Ok(cnt) => cnt,
+                Err(e) => anyhow::bail!(e)
+            };
+
+            if cnt.is_empty()? {
+                anyhow::bail!("not initialized")
+            }
+
             for path in paths {
                 if !path.is_file() {
                     eprintln!("Error: {} is not a file, skipped", path.display());
                     continue;
                 }
 
-                disk_objectstore::add_file(&path, &cnt_path)?;
+                dos::add_file(&path, cnt)?;
             }
         }
         Commands::Optimize {
@@ -105,7 +135,8 @@ fn main() -> anyhow::Result<()> {
             dbg!(no_compress, no_vacuum);
         }
         Commands::CatFile { object_hash } => {
-            let obj = disk_objectstore::Object::from_hash(&object_hash, &cnt_path)?;
+            let cnt = dos::Container::new(&cnt_path);
+            let obj = dos::Object::from_hash(&object_hash, &cnt)?;
             match obj {
                 Some(mut obj) => {
                     let n = std::io::copy(&mut obj.reader, &mut std::io::stdout())
@@ -122,8 +153,7 @@ fn main() -> anyhow::Result<()> {
                     eprintln!("object {} not found in {}", object_hash, cnt_path.display());
                 }
             }
-        }
-        // TODO: validate/backup subcommands
+        } // TODO: validate/backup subcommands
     };
 
     Ok(())

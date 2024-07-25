@@ -2,8 +2,6 @@ use anyhow::{Context, Ok};
 use rusqlite::Connection;
 use std::{path::PathBuf, u64};
 
-pub const PACKS_DB: &str = "packs.idx";
-
 pub fn create(db: &PathBuf) -> anyhow::Result<()> {
     // Create the table if it doesn't already exist
     let conn = Connection::open(db).with_context(|| "create db")?;

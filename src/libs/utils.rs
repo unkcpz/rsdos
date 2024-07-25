@@ -1,6 +1,5 @@
-use std::path::{PathBuf, Path};
 use std::fs;
-
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, thiserror::Error)]
 #[allow(missing_docs)]
@@ -17,19 +16,8 @@ pub enum Error {
         source: std::io::Error,
         path: PathBuf,
     },
-    #[error("Refusing to initialize in non-empty directory as '{}'", .path.display())]
-    DirectoryNotEmpty { path: PathBuf },
     #[error("Could not create directory at '{}'", .path.display())]
     CreateDirectory {
-        source: std::io::Error,
-        path: PathBuf,
-    },
-    #[error("Could not obtain the container directory at {}", .path.display())]
-    ObtainContainerDir {
-        path: PathBuf,
-    },
-    #[error("Could not read the container config file at {}", .path.display())]
-    ConfigFileRead {
         source: std::io::Error,
         path: PathBuf,
     },
@@ -51,10 +39,18 @@ impl<'a> Dir<'a> {
         create_dir(&sub_folder)?;
         Ok(())
     }
-    
+
     pub fn at_path(self, component: &str) -> PathBuf {
         let mut file = self.0.clone();
         file.push(component);
         file
+    }
+
+    pub fn is_empty(self) -> Result<bool, Error> {
+        let mut entries = fs::read_dir(self.0.clone()).map_err(|e| Error::IoOpen {
+            source: e,
+            path: self.0.clone(),
+        })?;
+        Ok(entries.next().is_none())
     }
 }
