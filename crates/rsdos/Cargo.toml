@@ -1,0 +1,31 @@
+[package]
+name = "rsdos"
+version = "0.1.0"
+description = "key-value store for file I/O on disk"
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow = "1.0.86"
+clap = { version = "4.5.9", features = ["derive"] }
+fallible-streaming-iterator = "0.1.9"
+hex = "0.4.3"
+hex-literal = "0.4.1"
+human_bytes = { version = "0.4.3", features = ["fast"] }
+indicatif = "0.17.8"
+rusqlite = { version = "0.31.0", features = ["bundled"] }
+serde = { version = "1.0.204", features = ["derive"] }
+serde_json = "1.0.120"
+sha2 = "0.10.8"
+tempfile = "3.10.1"
+thiserror = "1.0.63"
+uuid = { version = "1.10.0", features = ["serde", "v4"] }
+
+[[bin]]
+name = "rdos"
+path = "src/main.rs"
+
+[lib]
+name = "disk_objectstore"
+path = "src/lib.rs"
