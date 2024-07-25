@@ -196,15 +196,7 @@ mod tests {
 
     #[test]
     fn default_init() {
-        let id = uuid::Uuid::new_v4();
-        let config = config::Config {
-            container_id: id,
-            container_version: 1,
-            loose_prefix_len: 2,
-            pack_size_target: 4 * 1024 * 1024, // GiB -> bytes
-            hash_type: "sha256".to_string(),
-            compression_algorithm: "zlib+1".to_string(),
-        };
+        let config = config::Config::new(4);
         let tmp = tempdir().unwrap();
         let cnt = Container::new(&tmp);
         assert!(Dir(&cnt.path).is_empty().unwrap());
@@ -217,15 +209,7 @@ mod tests {
 
     #[test]
     fn init_in_non_empty_folder() {
-        let id = uuid::Uuid::new_v4();
-        let config = config::Config {
-            container_id: id,
-            container_version: 1,
-            loose_prefix_len: 2,
-            pack_size_target: 4 * 1024 * 1024, // GiB -> bytes
-            hash_type: "sha256".to_string(),
-            compression_algorithm: "zlib+1".to_string(),
-        };
+        let config = config::Config::new(4);
         let tmp = tempdir().unwrap();
         let cnt = Container::new(&tmp);
         let _ = fs::File::create(cnt.path.join("unexpected"));
