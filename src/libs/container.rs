@@ -41,14 +41,10 @@ impl Container {
         }
     }
 
-    pub fn is_empty(&self) -> anyhow::Result<bool> {
-        Ok(Dir(&self.path).is_empty()?)
-    }
-
     pub fn initialize(&self, config: &Config) -> anyhow::Result<()> {
         let cnt = self.validate()?;
 
-        if self.is_empty()? {
+        if Dir(&self.path).is_empty()? {
             let json_string = to_string_pretty(&config)?;
             let config = self.path.join(CONFIG_FILE);
             fs::File::create(config.clone())?
@@ -81,7 +77,7 @@ impl Container {
     /// - It already initialized with folders and files in places.
     pub fn validate(&self) -> anyhow::Result<&Self> {
         if !self.path.exists() {
-            anyhow::bail!("{} not exist", self.path.display());
+            anyhow::bail!("{} not exist, initialize first", self.path.display());
         }
 
         if !self.path.is_dir() {
@@ -98,8 +94,8 @@ impl Container {
             let path = entry?.path();
             if let Some(filename) = path.file_name() {
                 match filename
-                    .to_str()
-                    .unwrap_or_else(|| panic!("invalid filename {}", filename.to_string_lossy()))
+                    .to_string_lossy()
+                    .as_ref()
                 {
                     LOOSE | PACKS | DUPLICATES | SANDBOX => {
                         if !path.is_dir() {

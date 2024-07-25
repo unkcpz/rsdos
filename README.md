@@ -12,12 +12,14 @@
 - [x] Container as an struct
 - [ ] pyo3 bindings and get object iter bind
 - [ ] 1st benchmark with python dos on read behaviors
+- [ ] loose -> Pack
 - [ ] Pack read and Pack write
-- [ ] 2nd benchmark on Pack read/write
+- [ ] 2nd benchmark on loose-P pack and Pack read/write
 - [ ] optimize
 - [ ] validate
 - [ ] backup
 - [ ] 3rd benchmark on optimize/validate/backup ...
+- [ ] own rust benchmark on detail performance tuning.
 
 ## Design
 

@@ -82,10 +82,6 @@ fn main() -> anyhow::Result<()> {
                 Err(e) => anyhow::bail!(e)
             };
 
-            if cnt.is_empty()? {
-                anyhow::bail!("not initialized")
-            }
-
             let info = dos::stat(cnt).with_context(|| "unable to get container stat")?;
             // print status to stdout
             let state = String::new()
@@ -114,10 +110,6 @@ fn main() -> anyhow::Result<()> {
                 Ok(cnt) => cnt,
                 Err(e) => anyhow::bail!(e)
             };
-
-            if cnt.is_empty()? {
-                anyhow::bail!("not initialized")
-            }
 
             for path in paths {
                 if !path.is_file() {
