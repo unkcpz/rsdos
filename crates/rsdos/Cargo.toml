@@ -27,5 +27,5 @@ name = "rdos"
 path = "src/main.rs"
 
 [lib]
-name = "disk_objectstore"
+name = "rsdos"
 path = "src/lib.rs"

@@ -1,10 +1,9 @@
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use dos::{config::Config, utils::create_dir, Container};
+use rsdos::{config::Config, utils::create_dir, Container};
 use human_bytes::human_bytes;
 use std::{env, fmt::Debug, path::PathBuf};
 
-use disk_objectstore as dos;
 use std::io::{self, Write};
 
 /// Simple program to greet a person
@@ -82,7 +81,7 @@ fn main() -> anyhow::Result<()> {
                 Err(e) => anyhow::bail!(e)
             };
 
-            let info = dos::stat(cnt).with_context(|| "unable to get container stat")?;
+            let info = rsdos::stat(cnt).with_context(|| "unable to get container stat")?;
             // print status to stdout
             let state = String::new()
                         // container info
@@ -117,7 +116,7 @@ fn main() -> anyhow::Result<()> {
                     continue;
                 }
 
-                dos::add_file(&path, cnt)?;
+                rsdos::add_file(&path, cnt)?;
             }
         }
         Commands::Optimize {
@@ -127,8 +126,8 @@ fn main() -> anyhow::Result<()> {
             dbg!(no_compress, no_vacuum);
         }
         Commands::CatFile { object_hash } => {
-            let cnt = dos::Container::new(&cnt_path);
-            let obj = dos::Object::from_hash(&object_hash, &cnt)?;
+            let cnt = rsdos::Container::new(&cnt_path);
+            let obj = rsdos::Object::from_hash(&object_hash, &cnt)?;
             match obj {
                 Some(mut obj) => {
                     let n = std::io::copy(&mut obj.reader, &mut std::io::stdout())

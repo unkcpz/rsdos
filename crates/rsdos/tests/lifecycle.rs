@@ -1,6 +1,5 @@
 #[cfg(test)]
 mod tests {
-    use disk_objectstore as dos;
     use std::io::{Read, Write};
     use tempfile::{tempdir, NamedTempFile};
 
@@ -11,9 +10,9 @@ mod tests {
         let cnt = tempdir().unwrap();
         let cnt_path = cnt.into_path();
 
-        let config = dos::Config::new(4);
+        let config = rsdos::Config::new(4);
 
-        let cnt = dos::Container::new(&cnt_path);
+        let cnt = rsdos::Container::new(&cnt_path);
         cnt.initialize(&config)
             .expect("fail to initialize container");
 
@@ -24,11 +23,11 @@ mod tests {
             writeln!(tf, "test {i}").unwrap();
 
             let fp = tf.into_temp_path();
-            dos::add_file(&fp.to_path_buf(), &cnt).expect("unable to add file {i}");
+            rsdos::add_file(&fp.to_path_buf(), &cnt).expect("unable to add file {i}");
         }
 
         // status audit
-        let info = dos::stat(&cnt).expect("fail to audit container stat");
+        let info = rsdos::stat(&cnt).expect("fail to audit container stat");
         assert_eq!(info.count.loose, 10);
     }
 
@@ -40,9 +39,9 @@ mod tests {
         let cnt = tempdir().unwrap();
         let cnt_path = cnt.into_path();
 
-        let config = dos::Config::new(4);
+        let config = rsdos::Config::new(4);
 
-        let cnt = dos::Container::new(&cnt_path);
+        let cnt = rsdos::Container::new(&cnt_path);
         cnt.initialize(&config)
             .expect("fail to initialize container");
 
@@ -53,11 +52,11 @@ mod tests {
             writeln!(tf, "test x").unwrap();
 
             let fp = tf.into_temp_path();
-            let _ = dos::add_file(&fp.to_path_buf(), &cnt).expect("unable to add file {i}");
+            let _ = rsdos::add_file(&fp.to_path_buf(), &cnt).expect("unable to add file {i}");
         }
 
         // status audit
-        let info = dos::stat(&cnt).expect("fail to audit container stat");
+        let info = rsdos::stat(&cnt).expect("fail to audit container stat");
         assert_eq!(info.count.loose, 1);
 
         //
@@ -71,9 +70,9 @@ mod tests {
         let cnt = tempdir().unwrap();
         let cnt_path = cnt.into_path();
 
-        let config = dos::Config::new(4);
+        let config = rsdos::Config::new(4);
 
-        let cnt = dos::Container::new(&cnt_path);
+        let cnt = rsdos::Container::new(&cnt_path);
         cnt.initialize(&config)
             .expect("fail to initialize container");
 
@@ -82,11 +81,11 @@ mod tests {
         writeln!(tf, "test x").unwrap();
 
         let fp = tf.into_temp_path();
-        let hash_hex = dos::add_file(&fp.to_path_buf(), &cnt).expect("unable to add file {i}");
+        let hash_hex = rsdos::add_file(&fp.to_path_buf(), &cnt).expect("unable to add file {i}");
 
         // get obj by hash_hex
-        let cnt = dos::Container::new(&cnt_path);
-        let obj = dos::Object::from_hash(&hash_hex, &cnt).expect("get object from hash");
+        let cnt = rsdos::Container::new(&cnt_path);
+        let obj = rsdos::Object::from_hash(&hash_hex, &cnt).expect("get object from hash");
 
         let mut content = String::new();
         obj.unwrap().reader.read_to_string(&mut content).unwrap();
