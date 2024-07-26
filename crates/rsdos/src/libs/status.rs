@@ -34,7 +34,7 @@ pub struct SizeInfo {
     pub packs_db: u64,
 }
 
-fn traverse_loose(cnt: &Container) -> anyhow::Result<impl Iterator<Item = PathBuf>> {
+pub fn traverse_loose(cnt: &Container) -> anyhow::Result<impl Iterator<Item = PathBuf>> {
     let spinnner = ProgressBar::new_spinner().with_message("Auditing container stat ...");
     spinnner.enable_steady_tick(Duration::from_millis(500));
 

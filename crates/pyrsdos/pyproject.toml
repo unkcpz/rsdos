@@ -3,13 +3,20 @@ requires = ["maturin>=1.7,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "pyrsdos"
-requires-python = ">=3.8"
+name = "rsdos"
+requires-python = ">=3.9"
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
 dynamic = ["version"]
+
+[project.optional-dependencies]
+tests = [
+  "pytest~=8.3",
+  "pytest-benchmark~=4.0",
+]
+
 [tool.maturin]
 features = ["pyo3/extension-module"]

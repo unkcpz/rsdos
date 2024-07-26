@@ -46,8 +46,7 @@ fn copy_by_chunk<R: Read, W: Write>(
     writer: &mut W,
     chunk_size: usize,
 ) -> anyhow::Result<usize> {
-    let mut buf = Vec::with_capacity(chunk_size);
-    buf.resize(chunk_size, b' ');
+    let mut buf = vec![b' '; chunk_size];
     let mut total_bytes_copied = 0;
 
     loop {
@@ -107,7 +106,7 @@ where
 
     // <cnt_path>/sandbox/<uuid> as dst
     let dst = format!("{}.tmp", uuid::Uuid::new_v4());
-    let dst = cnt.sandbox()?.join(&dst);
+    let dst = cnt.sandbox()?.join(dst);
     let writer =
         fs::File::create(&dst).with_context(|| format!("open {} for write", dst.display()))?;
     let writer = BufWriter::new(writer);
@@ -118,8 +117,11 @@ where
 
     // write to object and store it in {hash:..2}/{hash:2..} file
     // first write to tmp and get the hash, than move it to the location.
-    // TODO: benchmark me (on large amount of data) whether do direct copy if it is a small file < 4M??
+    //
+    // Note: using chunk copy is a slightly slow than direct copy but since I don't know the size,
+    // have to do the pre-allocate with specific chunk size.
     let bytes_copied = copy_by_chunk(source, &mut hwriter, chunk_size)?;
+    // let bytes_copied = std::io::copy(source, &mut hwriter)?;
     let hash = hwriter.hasher.finalize();
     let hash_hex = hex::encode(hash);
 

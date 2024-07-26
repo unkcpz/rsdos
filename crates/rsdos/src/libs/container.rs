@@ -1,4 +1,4 @@
-use anyhow::{Context, Ok};
+use anyhow::Context;
 use serde_json::to_string_pretty;
 
 use crate::utils;
@@ -42,8 +42,6 @@ impl Container {
     }
 
     pub fn initialize(&self, config: &Config) -> anyhow::Result<()> {
-        let cnt = self.validate()?;
-
         if Dir(&self.path).is_empty()? {
             let json_string = to_string_pretty(&config)?;
             let config = self.path.join(CONFIG_FILE);
@@ -65,16 +63,15 @@ impl Container {
 
             db::create(&db).with_context(|| format!("create db at {}", db.display()))?;
         } else {
+            // is not empty, check if it is properly initialized
+            let cnt = self.validate()?;
             anyhow::bail!("{} already initialized", cnt.path.display())
         }
 
         Ok(())
     }
 
-    /// validate if it is a valid container, return itself if valid.
-    /// Two cases of valid:
-    /// - It is a exist empty directroy that can be initialized.
-    /// - It already initialized with folders and files in places.
+    /// validate if it is a valid container (means properly initialized from empty dir), return itself if valid.
     pub fn validate(&self) -> anyhow::Result<&Self> {
         if !self.path.exists() {
             anyhow::bail!("{} not exist, initialize first", self.path.display());
@@ -84,19 +81,14 @@ impl Container {
             anyhow::bail!("{} is not a directory", self.path.display());
         }
 
-        let mut entries = self.path.read_dir()?.peekable();
-
-        if entries.peek().is_none() {
-            return Ok(self);
+        if Dir(&self.path).is_empty()? {
+            anyhow::bail!("{} is empty, initialize first", self.path.display());
         }
 
-        for entry in entries {
+        for entry in self.path.read_dir()? {
             let path = entry?.path();
             if let Some(filename) = path.file_name() {
-                match filename
-                    .to_string_lossy()
-                    .as_ref()
-                {
+                match filename.to_string_lossy().as_ref() {
                     LOOSE | PACKS | DUPLICATES | SANDBOX => {
                         if !path.is_dir() {
                             anyhow::bail!("{} is not a directory", path.display())

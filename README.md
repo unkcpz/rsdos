@@ -68,3 +68,9 @@ Because of that, it is also consider to add timeout to the file operations.
 #### More
 
 - When read from hashkey, store the handler and meta which require allocation, and increase the cache miss.
+
+## API discrepancy with legacy dos
+
+- useless `close()`, since rust manage drop after outof scope
+- some exceptions are quite redundent such as `FileeNotFoundError`, and `NotInitialized` Error which are take care by the anyhow to propogate up already.
+- getter for `loose_prefix_len` and `pack_size_targer` is passing through `Config` in rsdos, no willing to support expose API to container.

@@ -5,8 +5,10 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
-name = "pyrsdos"
+name = "rsdos"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = "0.22.0"
+rsdos = { path = "../rsdos" }
+pyo3 = { version = "0.22", features = ["extension-module", "abi3", "abi3-py39", "anyhow", "auto-initialize"] }
+sha2 = "0.10.8"
