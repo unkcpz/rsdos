@@ -1,8 +1,15 @@
 import pytest
-from rsdos import Container
+from rsdos import Container as RsContainer
+from disk_objectstore import Container as PyContainer
 
 @pytest.fixture(scope="function")
-def container(tmp_path):
-    cnt = Container(tmp_path)
+def rs_container(tmp_path):
+    cnt = RsContainer(tmp_path)
+    cnt.init_container()
+    yield cnt
+
+@pytest.fixture(scope="function")
+def py_container(tmp_path):
+    cnt = PyContainer(tmp_path)
     cnt.init_container()
     yield cnt

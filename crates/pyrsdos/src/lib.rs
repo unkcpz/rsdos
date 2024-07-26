@@ -1,4 +1,4 @@
-use std::{io::Cursor, path::PathBuf};
+use std::{collections::HashMap, io::Cursor, path::PathBuf};
 
 use pyo3::{exceptions::PyValueError, prelude::*};
 use rsdos::{add_file::stream_to_loose, Config, Container, Object};
@@ -53,18 +53,26 @@ impl PyContainer {
         }
     }
 
-
-
     // TODO: a bit faster if I do raw rust wrapper but not enough: 8ms -> 7ms
-    // fn get_objects_content(&self, hashkeys: Vec<String>) -> PyResult<HashMap<String, Vec<u8>>> {
-    //     let d = hashkeys.iter().map(|k| {
-    //         let content = self.get_object_content(k).unwrap();
-    //         (k.to_string(), content)
-    //     }).collect();
-    //
-    //     // println!("{map:?}", map);
-    //     Ok(d)
-    // }
+    fn get_objects_content(&self, hashkeys: Vec<String>) -> PyResult<HashMap<String, Vec<u8>>> {
+        let d = hashkeys.iter().map(|hashkey| {
+            // let content = self.get_object_content(k).unwrap();
+            let content = match Object::from_hash(hashkey, &self.inner).unwrap() {
+                Some(mut obj) => {
+                    let mut buf = Vec::new();
+                    let mut cursor = Cursor::new(&mut buf);
+
+                    std::io::copy(&mut obj.reader, &mut cursor).unwrap();
+                    buf 
+                }
+                _ => todo!()
+            };
+            (hashkey.to_string(), content)
+        }).collect();
+
+        // println!("{map:?}", map);
+        Ok(d)
+    }
 }
 
 /// A Python module implemented in Rust.

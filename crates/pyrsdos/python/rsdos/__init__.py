@@ -36,6 +36,9 @@ class Container:
             retrieved[hashkey] = content
 
         return retrieved
+        
+        # direct rs wrapper
+        # return {k: bytes(v) for k, v in self.cnt.get_objects_content(hashkeys).items()}
 
     def add_object(self, content: bytes) -> str:
         return self.cnt.add_object(content)
