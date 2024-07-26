@@ -1,5 +1,4 @@
 import pytest
-import random
 import hashlib
 
 @pytest.mark.benchmark(group="read")

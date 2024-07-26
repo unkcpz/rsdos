@@ -1,9 +1,9 @@
-use std::{collections::HashMap, io::Cursor, path::PathBuf};
+use std::{io::Cursor, path::PathBuf};
 
 use pyo3::{exceptions::PyValueError, prelude::*};
 use rsdos::{add_file::stream_to_loose, Config, Container, Object};
 
-#[pyclass(name = "Container")]
+#[pyclass(name = "_Container")]
 struct PyContainer {
     inner: Container,
 }
