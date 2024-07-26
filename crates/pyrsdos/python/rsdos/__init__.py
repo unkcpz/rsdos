@@ -1,6 +1,16 @@
 import typing as t
+import io
 from pathlib import Path
 from .rsdos import _Container
+
+# StreamReadBytesType = t.Union[
+#     t.BinaryIO,
+#     "PackedObjectReader",
+#     "CallbackStreamWrapper",
+#     "ZlibLikeBaseStreamDecompresser",
+#     "ZeroStream",
+# ]
+StreamReadBytesType = t.BinaryIO
 
 class Container:
 
@@ -40,8 +50,23 @@ class Container:
         # direct rs wrapper
         # return {k: bytes(v) for k, v in self.cnt.get_objects_content(hashkeys).items()}
 
+    # def rs_add_object(self, content: bytes) -> str:
+    #     return self.cnt.add_object(content)
+
     def add_object(self, content: bytes) -> str:
-        return self.cnt.add_object(content)
+        """Add a loose object from its content.
+
+        :param content: a binary stream with the file content.
+        :return: the hash key of the newly created object.
+        """
+        stream = io.BytesIO(content)
+        return self.add_streamed_object(stream)
+
+    def add_streamed_object(self, stream: StreamReadBytesType) -> str:
+        _, hashkey = self.cnt.stream_to_loose(stream)
+
+        return hashkey
+
 
     def init_container(
         self,

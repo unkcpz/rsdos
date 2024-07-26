@@ -10,8 +10,9 @@ crate-type = ["cdylib"]
 
 [dependencies]
 rsdos = { path = "../rsdos" }
-pyo3 = { version = "0.22", features = ["extension-module", "abi3", "abi3-py39", "anyhow", "auto-initialize"] }
+pyo3 = { version = "0.21", features = ["extension-module", "abi3", "abi3-py39", "anyhow", "auto-initialize"] }
 sha2 = "0.10.8"
+pyo3-file = "0.8.1"
 
 [package.metadata.maturin]
 python-source = "python"
