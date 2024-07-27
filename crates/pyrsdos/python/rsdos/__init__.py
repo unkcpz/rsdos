@@ -101,4 +101,9 @@ class Container:
                 #     continue
                 yield hashkey
 
+    def get_total_size(self) -> int:
+        return self.cnt.get_total_size()
+
+    def count_objects(self) -> int:
+        return self.cnt.get_n_objs()
 

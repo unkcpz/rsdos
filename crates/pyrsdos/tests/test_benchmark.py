@@ -119,3 +119,47 @@ def test_loose_write_py(py_container, benchmark):
     assert len(hashkeys) == len(data_content)
     assert expected_hashkeys == hashkeys
 
+@pytest.mark.benchmark(group="count_10_000", min_rounds=3)
+def test_count_10000_py(py_container, benchmark):
+    num_files = 10000
+    data_content = [str(i).encode("ascii") for i in range(num_files)]
+    for content in data_content:
+        py_container.add_object(content)
+
+    n_objs = benchmark(py_container.count_objects)
+
+    assert n_objs.loose == num_files
+
+@pytest.mark.benchmark(group="count_10_000", min_rounds=3)
+def test_count_10000_rs(rs_container, benchmark):
+    num_files = 10000
+    data_content = [str(i).encode("ascii") for i in range(num_files)]
+    for content in data_content:
+        rs_container.add_object(content)
+
+    n_objs = benchmark(rs_container.count_objects)
+
+    assert n_objs == num_files
+
+@pytest.mark.benchmark(group="total_size_10_000", min_rounds=3)
+def test_get_total_size_10000_py(py_container, benchmark):
+    num_files = 10000
+    data_content = [str(i).encode("ascii") for i in range(num_files)]
+    for content in data_content:
+        py_container.add_object(content)
+
+    total_size = benchmark(py_container.get_total_size)
+
+    print(total_size)
+
+@pytest.mark.benchmark(group="total_size_10_000", min_rounds=3)
+def test_get_total_size_10000_rs(rs_container, benchmark):
+    num_files = 10000
+    data_content = [str(i).encode("ascii") for i in range(num_files)]
+    for content in data_content:
+        rs_container.add_object(content)
+
+    total_size = benchmark(rs_container.get_total_size)
+
+    print(total_size)
+

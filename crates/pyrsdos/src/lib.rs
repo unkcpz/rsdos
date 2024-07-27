@@ -1,8 +1,8 @@
-use std::{collections::HashMap, fs, io::{BufReader, Cursor}, path::PathBuf};
+use std::{collections::HashMap, fs, io::Cursor, path::PathBuf};
 
 use pyo3::{exceptions::PyValueError, prelude::*, types::PyBytes};
 use pyo3_file::PyFileLikeObject;
-use rsdos::{add_file::stream_to_loose, Config, Container, Object};
+use rsdos::{add_file::stream_to_loose, status, Config, Container, Object};
 use std::io::Read;
 
 #[pyclass(name = "_Container")]
@@ -40,7 +40,6 @@ impl PyContainer {
         stream_to_loose(&mut file_like, &self.inner)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))
     }
-
 
     fn get_object_content(&self, hashkey: &str) -> PyResult<Vec<u8>> {
         match Object::from_hash(hashkey, &self.inner)? {
@@ -85,17 +84,31 @@ impl PyContainer {
 
     // XXX: return an Object struct???
     fn stream_from_loose(&self, py: Python, obj_hash: &str) -> PyResult<Py<PyStreamObject>> {
-        let obj_path = self.inner.loose()?.join(format!("{}/{}", &obj_hash[..2], &obj_hash[2..]));
+        let obj_path = self
+            .inner
+            .loose()?
+            .join(format!("{}/{}", &obj_hash[..2], &obj_hash[2..]));
         if obj_path.exists() {
             let file_like = PyStreamObject::new(obj_path.to_str().unwrap().to_string())
                 .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))?;
 
             Ok(Py::new(py, file_like)?)
         } else {
-            Err(PyErr::new::<pyo3::exceptions::PyIOError, _>("object not exist".to_string()))
+            Err(PyErr::new::<pyo3::exceptions::PyIOError, _>(
+                "object not exist".to_string(),
+            ))
         }
     }
 
+    fn get_total_size(&self) -> PyResult<u64> {
+        let info = status::stat(&self.inner)?;
+        Ok(info.size.loose)
+    }
+
+    fn get_n_objs(&self) -> PyResult<u64> {
+        let info = status::stat(&self.inner)?;
+        Ok(info.count.loose)
+    }
 }
 
 #[pyclass]
