@@ -1,8 +1,9 @@
-use std::{collections::HashMap, io::Cursor, path::PathBuf};
+use std::{collections::HashMap, fs, io::{BufReader, Cursor}, path::PathBuf};
 
-use pyo3::{exceptions::PyValueError, prelude::*};
+use pyo3::{exceptions::PyValueError, prelude::*, types::PyBytes};
 use pyo3_file::PyFileLikeObject;
 use rsdos::{add_file::stream_to_loose, Config, Container, Object};
+use std::io::Read;
 
 #[pyclass(name = "_Container")]
 struct PyContainer {
@@ -33,11 +34,13 @@ impl PyContainer {
         Ok(self.inner.validate().is_ok())
     }
 
-    // fn add_object(&self, content: &[u8]) -> PyResult<String> {
-    //     let mut reader = Cursor::new(content);
-    //     let (_, hash_hex) = stream_to_loose(&mut reader, &self.inner)?;
-    //     Ok(hash_hex)
-    // }
+    fn stream_to_loose(&self, stream: Py<PyAny>) -> PyResult<(u64, String)> {
+        let mut file_like = PyFileLikeObject::with_requirements(stream, true, false, false, false)?;
+
+        stream_to_loose(&mut file_like, &self.inner)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))
+    }
+
 
     fn get_object_content(&self, hashkey: &str) -> PyResult<Vec<u8>> {
         match Object::from_hash(hashkey, &self.inner)? {
@@ -78,11 +81,46 @@ impl PyContainer {
         Ok(d)
     }
 
-    fn stream_to_loose(&self, stream: Py<PyAny>) -> PyResult<(u64, String)> {
-        let mut file_like = PyFileLikeObject::with_requirements(stream, true, false, false, false)?;
+    // TODO: try here return an iterator, use it in get_objects_content, see if it is getting fast
 
-        stream_to_loose(&mut file_like, &self.inner)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))
+    // XXX: return an Object struct???
+    fn stream_from_loose(&self, py: Python, obj_hash: &str) -> PyResult<Py<PyStreamObject>> {
+        let obj_path = self.inner.loose()?.join(format!("{}/{}", &obj_hash[..2], &obj_hash[2..]));
+        if obj_path.exists() {
+            let file_like = PyStreamObject::new(obj_path.to_str().unwrap().to_string())
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))?;
+
+            Ok(Py::new(py, file_like)?)
+        } else {
+            Err(PyErr::new::<pyo3::exceptions::PyIOError, _>("object not exist".to_string()))
+        }
+    }
+
+}
+
+#[pyclass]
+struct PyStreamObject {
+    inner: fs::File,
+    size: u64,
+}
+
+#[pymethods]
+impl PyStreamObject {
+    #[new]
+    fn new(filename: String) -> PyResult<Self> {
+        let file = fs::File::open(filename).map_err(|e| {
+            pyo3::exceptions::PyIOError::new_err(format!("Failed to open file: {}", e))
+        })?;
+        let size = file.metadata()?.len();
+        Ok(PyStreamObject { inner: file, size })
+    }
+
+    fn read(&mut self, py: Python) -> PyResult<Py<PyBytes>> {
+        let mut buf = vec![0; self.size as usize];
+        let n = self.inner.read(&mut buf).map_err(|e| {
+            pyo3::exceptions::PyIOError::new_err(format!("Failed to read file: {}", e))
+        })?;
+        Ok(PyBytes::new_bound(py, &buf[..n]).into())
     }
 }
 

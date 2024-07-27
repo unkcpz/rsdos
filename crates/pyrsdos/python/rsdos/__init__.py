@@ -26,6 +26,12 @@ class Container:
     def get_object_content(self, hashkey: str) -> bytes:
         return bytes(self.cnt.get_object_content(hashkey))
 
+        # XXX: return stream
+        # return self.get_object_stream(hashkey).read()
+
+    def get_object_stream(self, hashkey: str) -> StreamReadBytesType:
+        return self.cnt.stream_from_loose(hashkey)
+
     # XXX: althrough it is faster (2x faster) than legacy dos, but this is way more slower than 
     # the speed gained from `get_object_content` which is x30 faster.
     # legacy dos directly deal with the stream. If change it to using `get_object_content` it suffers from
@@ -49,6 +55,7 @@ class Container:
         
         # direct rs wrapper
         # return {k: bytes(v) for k, v in self.cnt.get_objects_content(hashkeys).items()}
+
 
     # def rs_add_object(self, content: bytes) -> str:
     #     return self.cnt.add_object(content)
