@@ -1,6 +1,5 @@
 use crate::Container;
 use anyhow::Context;
-use human_bytes::human_bytes;
 use sha2::{Digest, Sha256};
 use std::{
     fs,
@@ -65,7 +64,7 @@ fn copy_by_chunk<R: Read, W: Write>(
     Ok(total_bytes_copied)
 }
 
-pub fn add_file(file: &PathBuf, cnt: &Container) -> anyhow::Result<String> {
+pub fn add_file(file: &PathBuf, cnt: &Container) -> anyhow::Result<(String, String, u64)> {
     let stat = fs::metadata(file).with_context(|| format!("stat {}", file.display()))?;
     let expected_size = stat.len();
 
@@ -85,14 +84,7 @@ pub fn add_file(file: &PathBuf, cnt: &Container) -> anyhow::Result<String> {
         )
     );
 
-    println!(
-        "{} - {}: {}",
-        hash_hex,
-        file.display(),
-        human_bytes(expected_size as f64)
-    );
-
-    Ok(hash_hex)
+    Ok((hash_hex, file.display().to_string(), expected_size))
 }
 
 pub fn stream_to_loose<R>(source: &mut R, cnt: &Container) -> anyhow::Result<(u64, String)>

@@ -1,7 +1,7 @@
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use rsdos::{config::Config, utils::create_dir, Container};
 use human_bytes::human_bytes;
+use rsdos::{config::Config, utils::create_dir, Container};
 use std::{env, fmt::Debug, path::PathBuf};
 
 use std::io::{self, Write};
@@ -78,7 +78,7 @@ fn main() -> anyhow::Result<()> {
             let cnt = Container::new(&cnt_path);
             let cnt = match cnt.validate() {
                 Ok(cnt) => cnt,
-                Err(e) => anyhow::bail!(e)
+                Err(e) => anyhow::bail!(e),
             };
 
             let info = rsdos::stat(cnt).with_context(|| "unable to get container stat")?;
@@ -107,7 +107,7 @@ fn main() -> anyhow::Result<()> {
             let cnt = Container::new(&cnt_path);
             let cnt = match cnt.validate() {
                 Ok(cnt) => cnt,
-                Err(e) => anyhow::bail!(e)
+                Err(e) => anyhow::bail!(e),
             };
 
             for path in paths {
@@ -116,7 +116,13 @@ fn main() -> anyhow::Result<()> {
                     continue;
                 }
 
-                rsdos::add_file(&path, cnt)?;
+                let (hash_hex, filename, expected_size) = rsdos::add_file(&path, cnt)?;
+                println!(
+                    "{} - {}: {}",
+                    hash_hex,
+                    filename,
+                    human_bytes(expected_size as f64)
+                );
             }
         }
         Commands::Optimize {
