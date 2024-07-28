@@ -10,15 +10,17 @@
 - [x] Prepare test using stream to loose and test on init/status/add-files
 - [x] Read APIs: has_objects, get_object_hash, get_folder, get_object_stream, get_objects_stream_and_meta, list_all_objects
 - [x] Container as an struct
-- [ ] pyo3 bindings and get object iter bind
-- [ ] 1st benchmark with python dos on read behaviors
+- [x] pyo3 bindings and get object iter bind
+- [x] 1st benchmark with python dos on loose read and write behaviors
 - [ ] loose -> Pack
 - [ ] Pack read and Pack write
 - [ ] 2nd benchmark on loose-P pack and Pack read/write
+- [ ] bench mark on loose -> Pack without compress
 - [ ] optimize
+- [ ] compression
 - [ ] validate
 - [ ] backup
-- [ ] 3rd benchmark on optimize/validate/backup ...
+- [ ] benchmark on optimize/validate/backup ...
 - [ ] own rust benchmark on detail performance tuning.
 
 ## Design
