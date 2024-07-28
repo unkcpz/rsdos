@@ -23,11 +23,25 @@ class Container:
     def get_folder(self) -> Path:
         return self.cnt.get_folder()
 
-    def get_object_content(self, hashkey: str) -> bytes:
-        return self.get_object_stream(hashkey).read()
-
     def get_object_stream(self, hashkey: str) -> StreamReadBytesType:
         return self.cnt.stream_from_loose(hashkey)
+
+    def iter_objects_stream(
+        self, hashkeys: t.List[str], skip_if_missing: bool = True
+    ) -> t.Iterator[t.Tuple[str, t.Optional[StreamReadBytesType]]]:
+        for hashkey in hashkeys:
+            try:
+                stream = self.get_object_stream(hashkey)
+            except ValueError:
+                if skip_if_missing:
+                    continue
+                else:
+                    stream = None
+
+            yield (hashkey, stream)
+
+    def get_object_content(self, hashkey: str) -> bytes:
+        return self.get_object_stream(hashkey).read()
 
     # XXX: althrough it is faster  (~2x faster) than legacy dos (w.r.t to < py3.11), but this is way more slower than 
     # the speed gained from `get_object_content` which is ~x30 faster.
@@ -36,33 +50,14 @@ class Container:
     def get_objects_content(        
         self, hashkeys: t.List[str], skip_if_missing: bool = True
     ) -> t.Dict[str, t.Optional[bytes]]:
-        retrieved = {}
-        for hashkey in hashkeys:
-            try:
-                content = self.get_object_content(hashkey)
-            except ValueError:
-                if skip_if_missing:
-                    continue
-                else:
-                    content = None
-
-            retrieved[hashkey] = content
-
-        return retrieved
+        return {k: v.read() for k, v in self.iter_objects_stream(hashkeys, skip_if_missing)}
         
-        # direct rs wrapper
-        # return {k: bytes(v) for k, v in self.cnt.get_objects_content(hashkeys).items()}
-
-
-    # def rs_add_object(self, content: bytes) -> str:
-    #     return self.cnt.add_object(content)
+    def get_objects_content_raw_rs(
+        self, hashkeys: t.List[str], skip_if_missing: bool = True
+    ) -> t.Dict[str, t.Optional[bytes]]:
+        return {k: bytes(v) for k, v in self.cnt.get_objects_content(hashkeys).items()}
 
     def add_object(self, content: bytes) -> str:
-        """Add a loose object from its content.
-
-        :param content: a binary stream with the file content.
-        :return: the hash key of the newly created object.
-        """
         stream = io.BytesIO(content)
         return self.add_streamed_object(stream)
 
@@ -70,7 +65,6 @@ class Container:
         _, hashkey = self.cnt.stream_to_loose(stream)
 
         return hashkey
-
 
     def init_container(
         self,

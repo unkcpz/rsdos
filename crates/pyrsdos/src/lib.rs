@@ -112,6 +112,8 @@ impl PyContainer {
     }
 }
 
+// NOTE: this is re-implement of rsdos::Object without generic (which is for any Reader)
+// since pyO3 need non-opaque to wrapped to python class.
 #[pyclass]
 struct PyStreamObject {
     inner: fs::File,
