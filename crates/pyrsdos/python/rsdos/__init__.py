@@ -24,16 +24,13 @@ class Container:
         return self.cnt.get_folder()
 
     def get_object_content(self, hashkey: str) -> bytes:
-        return bytes(self.cnt.get_object_content(hashkey))
-
-        # XXX: return stream
-        # return self.get_object_stream(hashkey).read()
+        return self.get_object_stream(hashkey).read()
 
     def get_object_stream(self, hashkey: str) -> StreamReadBytesType:
         return self.cnt.stream_from_loose(hashkey)
 
-    # XXX: althrough it is faster (2x faster) than legacy dos, but this is way more slower than 
-    # the speed gained from `get_object_content` which is x30 faster.
+    # XXX: althrough it is faster  (~2x faster) than legacy dos (w.r.t to < py3.11), but this is way more slower than 
+    # the speed gained from `get_object_content` which is ~x30 faster.
     # legacy dos directly deal with the stream. If change it to using `get_object_content` it suffers from
     # the same overhead. Need to clear about where the overhead comes from.
     def get_objects_content(        

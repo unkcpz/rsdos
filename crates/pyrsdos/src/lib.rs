@@ -100,6 +100,7 @@ impl PyContainer {
         }
     }
 
+    // XXX: combine with get_n_objs and return dicts
     fn get_total_size(&self) -> PyResult<u64> {
         let info = status::stat(&self.inner)?;
         Ok(info.size.loose)
