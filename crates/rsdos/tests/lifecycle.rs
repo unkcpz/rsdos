@@ -20,7 +20,7 @@ mod tests {
         for i in 0..10 {
             // Note: security view the test is short term so safe to use NamedTempFile.
             let mut tf = NamedTempFile::new().unwrap();
-            writeln!(tf, "test {i}").unwrap();
+            write!(tf, "test {i}").unwrap();
 
             let fp = tf.into_temp_path();
             rsdos::add_file(&fp.to_path_buf(), &cnt).expect("unable to add file {i}");
@@ -49,7 +49,7 @@ mod tests {
         for _i in 0..10 {
             // Note: security view the test is short term so safe to use NamedTempFile.
             let mut tf = NamedTempFile::new().unwrap();
-            writeln!(tf, "test x").unwrap();
+            write!(tf, "test x").unwrap();
 
             let fp = tf.into_temp_path();
             let _ = rsdos::add_file(&fp.to_path_buf(), &cnt).expect("unable to add file {i}");
@@ -78,7 +78,7 @@ mod tests {
 
         // Note: security view the test is short term so safe to use NamedTempFile.
         let mut tf = NamedTempFile::new().unwrap();
-        writeln!(tf, "test x").unwrap();
+        write!(tf, "test x").unwrap();
 
         let fp = tf.into_temp_path();
         let hash_hex = rsdos::add_file(&fp.to_path_buf(), &cnt).expect("unable to add file {i}");

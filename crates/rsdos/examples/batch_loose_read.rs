@@ -1,37 +1,49 @@
 use std::{
-    collections::HashMap,
-    io::{Cursor, Write},
+    collections::HashMap, env, fs, io::{Cursor, Write}, path::PathBuf
 };
+use sha2::{Digest, Sha256};
 use tempfile::{tempdir, NamedTempFile};
 
 fn main() -> anyhow::Result<()> {
-    let cnt = tempdir()?;
-    let cnt_path = cnt.into_path();
+    // let cnt = tempdir()?;
+    // let cnt_path = cnt.into_path();
+    let cnt_path = env::current_dir()?.join("sample");
+    fs::create_dir_all(&cnt_path)?;
 
     let config = rsdos::Config::new(4);
 
     let cnt = rsdos::Container::new(cnt_path);
-    cnt.initialize(&config)
-        .expect("fail to initialize container");
 
-    // add 10 different files to loose
-    let mut hashkeys = Vec::with_capacity(1000);
-    // }
-    let orig_d: HashMap<String, String> = (0..1000)
-        .map(|i| {
-            let mut tf = NamedTempFile::new().unwrap();
-            let content = format!("test {i}");
-            writeln!(tf, "{content}").unwrap();
-
-            let fp = tf.into_temp_path();
-            let (hashkey, _, _) =
-                rsdos::add_file(&fp.to_path_buf(), &cnt).expect("unable to add file {i}");
-            hashkeys.push(hashkey.clone());
-            (hashkey, content.to_string())
-        })
-        .collect();
+    // INITIALIZE AND ADD FILES TO LOOSE
+    // cnt.initialize(&config)
+    //     .expect("fail to initialize container");
+    //
+    // // add 10 different files to loose
+    // let mut hashkeys = Vec::with_capacity(1000);
+    // // }
+    // let orig_d: HashMap<String, String> = (0..1000)
+    //     .map(|i| {
+    //         let mut tf = NamedTempFile::new().unwrap();
+    //         let content = format!("test {i}");
+    //         writeln!(tf, "{content}").unwrap();
+    //
+    //         let fp = tf.into_temp_path();
+    //         let (hashkey, _, _) =
+    //             rsdos::add_file(&fp.to_path_buf(), &cnt).expect("unable to add file {i}");
+    //         hashkeys.push(hashkey.clone());
+    //         (hashkey, content.to_string())
+    //     })
+    //     .collect();
 
     // read by hashkey
+    let hashkeys: Vec<String> = (0..1000)
+        .map(|i| -> String {
+            let content = format!("test {i}");
+            let mut hasher = Sha256::new();
+            hasher.update(content.as_bytes());
+            let hashkey = hasher.finalize();
+            hex::encode(hashkey)
+        }).collect();
     let d: HashMap<String, String> = hashkeys
         .iter()
         .map(|hashkey| {
@@ -49,12 +61,12 @@ fn main() -> anyhow::Result<()> {
         })
         .collect();
 
-    for (k, v) in orig_d {
-        assert_eq!(*d.get(&k).unwrap().trim().to_string(), v);
-    }
+    // for (k, v) in orig_d {
+    //     assert_eq!(*d.get(&k).unwrap().trim().to_string(), v);
+    // }
 
-    // status audit
-    let _ = rsdos::stat(&cnt).expect("fail to audit container stat");
+    // // status audit
+    // let _ = rsdos::stat(&cnt).expect("fail to audit container stat");
 
     Ok(())
 }
