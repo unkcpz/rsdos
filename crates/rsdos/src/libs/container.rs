@@ -1,4 +1,4 @@
-use anyhow::Context;
+use anyhow::{Context, Ok};
 use serde_json::to_string_pretty;
 
 use crate::utils;
@@ -9,6 +9,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[derive(Debug)]
 pub struct Container {
     pub path: PathBuf,
 }
@@ -41,7 +42,7 @@ impl Container {
         }
     }
 
-    pub fn initialize(&self, config: &Config) -> anyhow::Result<()> {
+    pub fn initialize(&self, config: &Config) -> anyhow::Result<&Self> {
         if Dir(&self.path).is_empty()? {
             let json_string = to_string_pretty(&config)?;
             let config = self.path.join(CONFIG_FILE);
@@ -68,7 +69,15 @@ impl Container {
             anyhow::bail!("{} already initialized", cnt.path.display())
         }
 
-        Ok(())
+        Ok(self)
+    }
+
+    pub fn config(&self) -> anyhow::Result<Config> {
+        let config = fs::read_to_string(self.config_file()?)?;
+        let config =
+            serde_json::from_str(&config).with_context(|| format!("parse config from {config}"))?;
+
+        Ok(config)
     }
 
     /// validate if it is a valid container (means properly initialized from empty dir), return itself if valid.

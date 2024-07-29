@@ -1,20 +1,29 @@
-use anyhow::{Context, Ok};
-use rusqlite::Connection;
+use anyhow::Context;
+use rusqlite::{params, Connection, OptionalExtension};
 use std::{path::PathBuf, u64};
+
+#[derive(Debug, Clone)]
+pub struct PackEntry {
+    pub hashkey: String,
+    pub compressed: bool,
+    pub size: u64,
+    pub offset: u64,
+    pub length: u64,
+    pub pack_id: u64,
+}
 
 pub fn create(db: &PathBuf) -> anyhow::Result<()> {
     // Create the table if it doesn't already exist
     let conn = Connection::open(db).with_context(|| "create db")?;
     conn.execute(
         "CREATE TABLE IF NOT EXISTS db_object (
-                    id INTEGER NOT NULL,
+                    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
                     hashkey VARCHAR NOT NULL,
                     compressed BOOLEAN NOT NULL,
                     size INTEGER NOT NULL,
                     offset INTEGER NOT NULL,
                     length INTEGER NOT NULL,
-                    pack_id INTEGER NOT NULL,
-                    PRIMARY KEY (id)
+                    pack_id INTEGER NOT NULL
                 )",
         [],
     )?;
@@ -31,7 +40,7 @@ pub fn create(db: &PathBuf) -> anyhow::Result<()> {
 /// Counting number of packed objects and ``total_size`` if they were loose objects
 pub fn stats(db: &PathBuf) -> anyhow::Result<(u64, u64)> {
     let conn = Connection::open(db)
-        .with_context(|| format!("Open db {} for audit", db.to_string_lossy()))?;
+        .with_context(|| format!("Open db {} for auditing", db.to_string_lossy()))?;
     let mut stmt = conn.prepare("SELECT size FROM db_object")?;
     let rows = stmt
         .query([])
@@ -45,4 +54,31 @@ pub fn stats(db: &PathBuf) -> anyhow::Result<(u64, u64)> {
         count += 1;
     }
     Ok((count, total_size))
+}
+
+pub fn insert(conn: &Connection, packin: &PackEntry) -> anyhow::Result<()> {
+    // NOTE: I use SQL: `INSERT OR IGNORE` to deal with duplicate keys
+    let mut stmt = conn.prepare_cached("INSERT OR IGNORE INTO db_object (hashkey, compressed, size, offset, length, pack_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
+    stmt.execute(
+            params![packin.hashkey, packin.compressed, packin.size, packin.offset, packin.length, packin.pack_id])
+        .with_context(|| format!("insert {packin:?} to db"))?;
+
+    Ok(())
+}
+
+// XXX: sub from select_multiple which only query once
+pub fn select(conn: &Connection, hash_hex: &str) -> anyhow::Result<Option<PackEntry>> {
+    let mut stmt = conn.prepare_cached("SELECT hashkey, compressed, size, offset, length, pack_id FROM db_object WHERE hashkey = ?1")?;
+    let entry = stmt.query_row(params![hash_hex], |row| {
+        Ok(PackEntry {
+            hashkey: row.get(0)?,
+            compressed: row.get(1)?,
+            size: row.get(2)?,
+            offset: row.get(3)?,
+            length: row.get(4)?,
+            pack_id: row.get(5)?,
+        })
+    }).optional()?;
+
+    Ok(entry)
 }

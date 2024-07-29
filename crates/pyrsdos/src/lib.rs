@@ -1,8 +1,19 @@
-use std::{collections::HashMap, fs, io::Cursor, path::PathBuf};
+use std::{
+    collections::HashMap,
+    fs,
+    io::{self, Cursor, Seek},
+    path::PathBuf,
+};
 
 use pyo3::{exceptions::PyValueError, prelude::*, types::PyBytes};
 use pyo3_file::PyFileLikeObject;
-use rsdos::{add_file::stream_to_loose, status, Config, Container, Object};
+use rsdos::{
+    add_file::{stream_to_loose, stream_to_packs, StoreType, _stream_to_packs},
+    status,
+    utils::Dir,
+    Config, Container, Object,
+};
+use rusqlite::Connection;
 use std::io::Read;
 
 #[pyclass(name = "_Container")]
@@ -23,10 +34,11 @@ impl PyContainer {
         self.inner.path.clone()
     }
 
-    #[pyo3(signature = (pack_size_target=4))]
+    #[pyo3(signature = (pack_size_target=4 * 1024 * 1024))]
     fn init_container(&self, pack_size_target: u64) -> PyResult<()> {
         let config = Config::new(pack_size_target);
-        Ok(self.inner.initialize(&config)?)
+        self.inner.initialize(&config)?;
+        Ok(())
     }
 
     #[getter]
@@ -41,8 +53,67 @@ impl PyContainer {
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))
     }
 
+    fn stream_to_packs(&self, stream: Py<PyAny>) -> PyResult<(u64, String)> {
+        let mut file_like = PyFileLikeObject::with_requirements(stream, true, false, false, false)?;
+
+        stream_to_packs(&mut file_like, &self.inner)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))
+    }
+
+    fn stream_to_packs_multi(&self, stream_lst: Vec<Py<PyAny>>) -> PyResult<Vec<String>> {
+        let mut results = Vec::new();
+        let packs = self.inner.packs()?;
+        let conn = Connection::open(self.inner.packs_db()?).unwrap();
+
+        let mut current_pack_id: u64 = 0;
+        if !Dir(&packs).is_empty().unwrap() {
+            for entry in packs.read_dir()? {
+                let path = entry?.path();
+                if let Some(filename) = path.file_name() {
+                    let n = filename.to_string_lossy();
+                    let n = n.parse().unwrap();
+                    current_pack_id = std::cmp::max(current_pack_id, n);
+                }
+            }
+        }
+        // If size of current pack exceed the single pack limit, create next pack
+        let p = Dir(&packs).at_path(&format!("{current_pack_id}"));
+        let mut fpack = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(p)?;
+
+        // Use new pack if size of the current pack reach or exceed the threshold limit
+        let offset = if fpack.metadata()?.len() >= self.inner.config()?.pack_size_target {
+            current_pack_id += 1;
+            0
+        } else {
+            fpack.seek(io::SeekFrom::End(0))?
+        };
+        let mut fpack = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(Dir(&packs).at_path(&format!("{current_pack_id}")))?;
+
+        for stream in stream_lst {
+            // results.push(self.stream_to_packs(file)?);
+            let mut file_like =
+                PyFileLikeObject::with_requirements(stream, true, false, false, false)?;
+
+            // TODO: need to check if new pack file needed. Create one if needed based on the
+            // growth of size.
+            let (_, hash_hex) =
+                _stream_to_packs(&mut file_like, &mut fpack, &conn, offset, current_pack_id)?;
+
+            results.push(hash_hex);
+        }
+
+        Ok(results)
+    }
+
     fn get_object_content(&self, hashkey: &str) -> PyResult<Vec<u8>> {
-        match Object::from_hash(hashkey, &self.inner)? {
+        match Object::from_hash(hashkey, &self.inner, &StoreType::Loose)? {
             Some(mut obj) => {
                 let mut buf = Vec::new();
                 let mut cursor = Cursor::new(&mut buf);
@@ -58,20 +129,22 @@ impl PyContainer {
 
     // TODO: a bit faster if I do raw rust wrapper but not enough: 8ms -> 7ms
     fn get_objects_content(&self, hashkeys: Vec<String>) -> PyResult<HashMap<String, Vec<u8>>> {
+        let mut buf = Vec::new();
         let d = hashkeys
             .iter()
             .map(|hashkey| {
                 // let content = self.get_object_content(k).unwrap();
-                let content = match Object::from_hash(hashkey, &self.inner).unwrap() {
-                    Some(mut obj) => {
-                        let mut buf = Vec::new();
-                        let mut cursor = Cursor::new(&mut buf);
+                let content =
+                    match Object::from_hash(hashkey, &self.inner, &StoreType::Loose).unwrap() {
+                        Some(mut obj) => {
+                            buf.clear();
+                            let mut cursor = Cursor::new(&mut buf);
 
-                        std::io::copy(&mut obj.reader, &mut cursor).unwrap();
-                        buf
-                    }
-                    _ => todo!(),
-                };
+                            std::io::copy(&mut obj.reader, &mut cursor).unwrap();
+                            buf.clone()
+                        }
+                        _ => todo!(),
+                    };
                 (hashkey.to_string(), content)
             })
             .collect();

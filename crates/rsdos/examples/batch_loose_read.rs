@@ -1,8 +1,7 @@
-use std::{
-    collections::HashMap, env, fs, io::{Cursor, Write}, path::PathBuf
-};
+use rsdos::add_file::StoreType;
 use sha2::{Digest, Sha256};
-use tempfile::{tempdir, NamedTempFile};
+use tempfile::NamedTempFile;
+use std::{collections::HashMap, env, fs, io::{Cursor, Write}};
 
 fn main() -> anyhow::Result<()> {
     // let cnt = tempdir()?;
@@ -15,25 +14,25 @@ fn main() -> anyhow::Result<()> {
     let cnt = rsdos::Container::new(cnt_path);
 
     // INITIALIZE AND ADD FILES TO LOOSE
-    // cnt.initialize(&config)
-    //     .expect("fail to initialize container");
-    //
-    // // add 10 different files to loose
-    // let mut hashkeys = Vec::with_capacity(1000);
-    // // }
-    // let orig_d: HashMap<String, String> = (0..1000)
-    //     .map(|i| {
-    //         let mut tf = NamedTempFile::new().unwrap();
-    //         let content = format!("test {i}");
-    //         writeln!(tf, "{content}").unwrap();
-    //
-    //         let fp = tf.into_temp_path();
-    //         let (hashkey, _, _) =
-    //             rsdos::add_file(&fp.to_path_buf(), &cnt).expect("unable to add file {i}");
-    //         hashkeys.push(hashkey.clone());
-    //         (hashkey, content.to_string())
-    //     })
-    //     .collect();
+    cnt.initialize(&config)
+        .expect("fail to initialize container");
+
+    // add 10 different files to loose
+    let mut hashkeys = Vec::with_capacity(1000);
+    // }
+    let orig_d: HashMap<String, String> = (0..1000)
+        .map(|i| {
+            let mut tf = NamedTempFile::new().unwrap();
+            let content = format!("test {i}");
+            write!(tf, "{content}").unwrap();
+
+            let fp = tf.into_temp_path();
+            let (hashkey, _, _) =
+                rsdos::add_file(&fp.to_path_buf(), &cnt, &StoreType::Loose).expect("unable to add file {i}");
+            hashkeys.push(hashkey.clone());
+            (hashkey, content.to_string())
+        })
+        .collect();
 
     // read by hashkey
     let hashkeys: Vec<String> = (0..1000)
@@ -43,11 +42,13 @@ fn main() -> anyhow::Result<()> {
             hasher.update(content.as_bytes());
             let hashkey = hasher.finalize();
             hex::encode(hashkey)
-        }).collect();
+        })
+        .collect();
     let d: HashMap<String, String> = hashkeys
         .iter()
         .map(|hashkey| {
-            let content = match rsdos::Object::from_hash(hashkey, &cnt).unwrap() {
+            let content = match rsdos::Object::from_hash(hashkey, &cnt, &StoreType::Loose).unwrap()
+            {
                 Some(mut obj) => {
                     let mut buf = Vec::new();
                     let mut cursor = Cursor::new(&mut buf);
@@ -61,12 +62,12 @@ fn main() -> anyhow::Result<()> {
         })
         .collect();
 
-    // for (k, v) in orig_d {
-    //     assert_eq!(*d.get(&k).unwrap().trim().to_string(), v);
-    // }
+    for (k, v) in orig_d {
+        assert_eq!(*d.get(&k).unwrap().trim().to_string(), v);
+    }
 
-    // // status audit
-    // let _ = rsdos::stat(&cnt).expect("fail to audit container stat");
+    // status audit
+    let _ = rsdos::stat(&cnt).expect("fail to audit container stat");
 
     Ok(())
 }

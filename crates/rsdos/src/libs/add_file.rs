@@ -1,9 +1,14 @@
-use crate::{utils::Dir, Container};
+use crate::{
+    db::{self, PackEntry},
+    utils::Dir,
+    Container,
+};
 use anyhow::Context;
+use rusqlite::Connection;
 use sha2::{Digest, Sha256};
 use std::{
-    fs::{self, OpenOptions},
-    io::{self, BufReader, BufWriter, Read, Write},
+    fs::{self},
+    io::{self, BufReader, BufWriter, Read, Seek, Write},
     path::PathBuf,
 };
 
@@ -12,9 +17,6 @@ struct HashWriter<W, H> {
     writer: W,
     hasher: H,
 }
-
-// XXX: should read from container.config
-const PACK_THRESHOLD: u64 = 4 * 1024 * 1024; // 4 GiB
 
 impl<W, H> HashWriter<W, H>
 where
@@ -75,7 +77,7 @@ pub enum StoreType {
 pub fn add_file(
     file: &PathBuf,
     cnt: &Container,
-    target: StoreType,
+    target: &StoreType,
 ) -> anyhow::Result<(String, String, u64)> {
     let stat = fs::metadata(file).with_context(|| format!("stat {}", file.display()))?;
     let expected_size = stat.len();
@@ -88,7 +90,7 @@ pub fn add_file(
 
     let (bytes_streamd, hash_hex) = match target {
         StoreType::Loose => stream_to_loose(&mut source, cnt)?,
-        StoreType::Packs => stream_to_pack(&mut source, cnt)?,
+        StoreType::Packs => stream_to_packs(&mut source, cnt)?,
     };
 
     anyhow::ensure!(
@@ -145,13 +147,11 @@ where
     Ok((bytes_copied as u64, hash_hex))
 }
 
-fn stream_to_pack<R>(source: &mut R, cnt: &Container) -> anyhow::Result<(u64, String)>
+pub fn stream_to_packs<R>(source: &mut R, cnt: &Container) -> anyhow::Result<(u64, String)>
 where
     R: Read,
 {
-    let chunk_size = 524_288; // 512 MiB TODO: make it configurable??
-                              //
-                              // write to <cnt_path>/packs/<u32>
+    // write to <cnt_path>/packs/<u32>
     let packs = cnt.packs()?;
 
     // Get the current addable pack
@@ -170,28 +170,119 @@ where
 
     // If size of current pack exceed the single pack limit, create next pack
     let p = Dir(&packs).at_path(&format!("{current_pack_id}"));
-    // dbg!(p.clone());
-    let fpack = fs::OpenOptions::new()
+    let mut fpack = fs::OpenOptions::new()
         .write(true)
         .create(true)
         .truncate(false)
         .open(p)
         .with_context(|| format!("open packs/{current_pack_id}"))?;
 
-    if fpack.metadata()?.len() > PACK_THRESHOLD {
+    // Use new pack if size of the current pack reach or exceed the threshold limit
+    let offset = if fpack.metadata()?.len() >= cnt.config()?.pack_size_target {
         current_pack_id += 1;
-    }
-    let fpack = fs::OpenOptions::new()
+        0
+    } else {
+        fpack.seek(io::SeekFrom::End(0))?
+    };
+
+    let mut fpack = fs::OpenOptions::new()
+        .create(true)
         .append(true)
         .open(Dir(&packs).at_path(&format!("{current_pack_id}")))?;
 
+    let conn = Connection::open(cnt.packs_db()?)?;
+
+    let (bytes_copied, hash_hex) =
+        _stream_to_packs::<R>(source, &mut fpack, &conn, offset, current_pack_id)?;
+
+    Ok((bytes_copied, hash_hex))
+}
+
+pub fn stream_to_packs_multi<R: Read>(
+    sources: Vec<&mut R>,
+    cnt: &Container,
+) -> anyhow::Result<Vec<(u64, String)>> {
+    // write to <cnt_path>/packs/<u32>
+    let packs = cnt.packs()?;
+    let conn = Connection::open(cnt.packs_db()?)?;
+
+    let mut results = Vec::new();
+    for source in sources {
+        // Get the current addable pack
+        // Create pack_id = 0 if not yet packs exists.
+        let mut current_pack_id: u64 = 0;
+        if !Dir(&packs).is_empty()? {
+            for entry in packs.read_dir()? {
+                let path = entry?.path();
+                if let Some(filename) = path.file_name() {
+                    let n = filename.to_string_lossy();
+                    let n = n.parse().with_context(|| format!("parse {n} to u64"))?;
+                    current_pack_id = std::cmp::max(current_pack_id, n);
+                }
+            }
+        }
+
+        // If size of current pack exceed the single pack limit, create next pack
+        let p = Dir(&packs).at_path(&format!("{current_pack_id}"));
+        let mut fpack = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(p)
+            .with_context(|| format!("open packs/{current_pack_id}"))?;
+
+        // Use new pack if size of the current pack reach or exceed the threshold limit
+        let offset = if fpack.metadata()?.len() >= cnt.config()?.pack_size_target {
+            current_pack_id += 1;
+            0
+        } else {
+            fpack.seek(io::SeekFrom::End(0))?
+        };
+
+        let mut fpack = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(Dir(&packs).at_path(&format!("{current_pack_id}")))?;
+
+        let (bytes_copied, hash_hex) =
+            _stream_to_packs::<R>(source, &mut fpack, &conn, offset, current_pack_id)?;
+
+        results.push((bytes_copied, hash_hex));
+    }
+
+    Ok(results)
+}
+
+pub fn _stream_to_packs<R>(
+    source: &mut R,
+    fpack: &mut fs::File,
+    conn: &Connection,
+    offset: u64,
+    current_pack_id: u64,
+) -> anyhow::Result<(u64, String)>
+where
+    R: Read,
+{
     let hasher = Sha256::new();
     let mut hwriter = HashWriter::new(fpack, hasher);
 
+    // 512 MiB TODO: make it configurable??
+    let chunk_size = 524_288;
     let bytes_copied = copy_by_chunk(source, &mut hwriter, chunk_size)?;
 
     let hash = hwriter.hasher.finalize();
     let hash_hex = hex::encode(hash);
 
+    // entry record to DB
+    let packin = PackEntry {
+        hashkey: hash_hex.clone(),
+        compressed: false,
+        size: bytes_copied as u64,
+        offset,
+        length: bytes_copied as u64, // redundent as size
+        pack_id: current_pack_id,
+    };
+
+    db::insert(conn, &packin)?;
     Ok((bytes_copied as u64, hash_hex))
 }

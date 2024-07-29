@@ -583,6 +583,8 @@ dependencies = [
  "pyo3",
  "pyo3-file",
  "rsdos",
+ "rusqlite",
+ "serde",
  "sha2",
 ]
 

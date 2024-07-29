@@ -11,6 +11,7 @@ from .rsdos import _Container
 #     "ZeroStream",
 # ]
 StreamReadBytesType = t.BinaryIO
+StreamSeekBytesType = t.BinaryIO
 
 class Container:
 
@@ -61,8 +62,38 @@ class Container:
         stream = io.BytesIO(content)
         return self.add_streamed_object(stream)
 
+    def add_object_to_packs(self, content: bytes) -> str:
+        stream = io.BytesIO(content)
+
+        # import ipdb; ipdb.set_trace() 
+        h = self.add_streamed_object_to_packs(stream)
+        return h
+
+    # XXX: I prefer name `add_objects_to_packs`
+    def add_objects_to_pack(  # pylint: disable=too-many-arguments
+        self,
+        content_list: t.Union[t.List[bytes], t.Tuple[bytes, ...]],
+        compress: bool = False,
+        no_holes: bool = False,
+        no_holes_read_twice: bool = True,
+        callback: t.Optional[t.Callable] = None,
+        do_fsync: bool = True,
+        do_commit: bool = True,
+    ) -> t.List[str]:
+        stream_list: t.List[StreamSeekBytesType] = [
+            io.BytesIO(content) for content in content_list
+        ]
+        hkey_lst = self.cnt.stream_to_packs_multi(stream_list)
+        return hkey_lst
+            
+
     def add_streamed_object(self, stream: StreamReadBytesType) -> str:
         _, hashkey = self.cnt.stream_to_loose(stream)
+
+        return hashkey
+
+    def add_streamed_object_to_packs(self, stream: StreamReadBytesType) -> str:
+        _, hashkey = self.cnt.stream_to_packs(stream)
 
         return hashkey
 

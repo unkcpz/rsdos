@@ -117,7 +117,7 @@ fn main() -> anyhow::Result<()> {
                     continue;
                 }
 
-                let (hash_hex, filename, expected_size) = rsdos::add_file(&path, cnt, StoreType::Loose)?;
+                let (hash_hex, filename, expected_size) = rsdos::add_file(&path, cnt, &StoreType::Loose)?;
                 println!(
                     "{} - {}: {}",
                     hash_hex,
@@ -134,14 +134,14 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::CatFile { object_hash } => {
             let cnt = rsdos::Container::new(&cnt_path);
-            let obj = rsdos::Object::from_hash(&object_hash, &cnt)?;
+            let obj = rsdos::Object::from_hash(&object_hash, &cnt, &StoreType::Loose)?;
             match obj {
                 Some(mut obj) => {
                     let n = std::io::copy(&mut obj.reader, &mut std::io::stdout())
                         .with_context(|| "write object to stdout")?;
 
                     anyhow::ensure!(
-                        n == obj.expected_size,
+                        n == obj.expected_size as u64,
                         "file was not the expecwed size, expected: {}, got: {}",
                         obj.expected_size,
                         n
