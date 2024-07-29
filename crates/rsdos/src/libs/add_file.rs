@@ -4,7 +4,7 @@ use crate::{
     Container,
 };
 use anyhow::Context;
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
 use sha2::{Digest, Sha256};
 use std::{
     fs::{self},
@@ -13,9 +13,9 @@ use std::{
 };
 
 #[derive(Default)]
-struct HashWriter<W, H> {
-    writer: W,
-    hasher: H,
+pub struct HashWriter<W, H> {
+    pub writer: W,
+    pub hasher: H,
 }
 
 impl<W, H> HashWriter<W, H>
@@ -23,7 +23,7 @@ where
     W: Write,
     H: Digest,
 {
-    fn new(writer: W, hasher: H) -> Self {
+    pub fn new(writer: W, hasher: H) -> Self {
         Self { writer, hasher }
     }
 }
@@ -45,7 +45,7 @@ where
 }
 
 /// Copy by chunk (``chunk_size`` in unit bytes) and return the size of content that copied
-fn copy_by_chunk<R: Read, W: Write>(
+pub fn copy_by_chunk<R: Read, W: Write>(
     reader: &mut R,
     writer: &mut W,
     chunk_size: usize,
@@ -201,54 +201,89 @@ where
 pub fn stream_to_packs_multi<R: Read>(
     sources: Vec<&mut R>,
     cnt: &Container,
-) -> anyhow::Result<Vec<(u64, String)>> {
-    // write to <cnt_path>/packs/<u32>
-    let packs = cnt.packs()?;
-    let conn = Connection::open(cnt.packs_db()?)?;
-
+) -> anyhow::Result<Vec<String>> {
     let mut results = Vec::new();
-    for source in sources {
-        // Get the current addable pack
-        // Create pack_id = 0 if not yet packs exists.
-        let mut current_pack_id: u64 = 0;
-        if !Dir(&packs).is_empty()? {
-            for entry in packs.read_dir()? {
-                let path = entry?.path();
-                if let Some(filename) = path.file_name() {
-                    let n = filename.to_string_lossy();
-                    let n = n.parse().with_context(|| format!("parse {n} to u64"))?;
-                    current_pack_id = std::cmp::max(current_pack_id, n);
-                }
+    let packs = cnt.packs()?;
+    let mut conn = Connection::open(cnt.packs_db()?)?;
+
+    let mut current_pack_id: u64 = 0;
+    if !Dir(&packs).is_empty()? {
+        for entry in packs.read_dir()? {
+            let path = entry?.path();
+            if let Some(filename) = path.file_name() {
+                let n = filename.to_string_lossy();
+                let n = n.parse()?;
+                current_pack_id = std::cmp::max(current_pack_id, n);
             }
         }
-
-        // If size of current pack exceed the single pack limit, create next pack
-        let p = Dir(&packs).at_path(&format!("{current_pack_id}"));
-        let mut fpack = fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(p)
-            .with_context(|| format!("open packs/{current_pack_id}"))?;
-
-        // Use new pack if size of the current pack reach or exceed the threshold limit
-        let offset = if fpack.metadata()?.len() >= cnt.config()?.pack_size_target {
-            current_pack_id += 1;
-            0
-        } else {
-            fpack.seek(io::SeekFrom::End(0))?
-        };
-
-        let mut fpack = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(Dir(&packs).at_path(&format!("{current_pack_id}")))?;
-
-        let (bytes_copied, hash_hex) =
-            _stream_to_packs::<R>(source, &mut fpack, &conn, offset, current_pack_id)?;
-
-        results.push((bytes_copied, hash_hex));
     }
+    // If size of current pack exceed the single pack limit, create next pack
+    let p = Dir(&packs).at_path(&format!("{current_pack_id}"));
+    let mut fpack = fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(p)?;
+
+    // Use new pack if size of the current pack reach or exceed the threshold limit
+    let offset = if fpack.metadata()?.len() >= cnt.config()?.pack_size_target {
+        current_pack_id += 1;
+        0
+    } else {
+        fpack.seek(io::SeekFrom::End(0))?
+    };
+    let mut fpack = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(Dir(&packs).at_path(&format!("{current_pack_id}")))?;
+
+    let tx = conn.transaction()?;
+    {
+        let mut stmt = tx.prepare_cached("INSERT OR IGNORE INTO db_object (hashkey, compressed, size, offset, length, pack_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
+
+        for stream in sources {
+            // results.push(self.stream_to_packs(file)?);
+            // let mut file_like = PyFileLikeObject::with_requirements(stream, true, false, false, false)?;
+
+            // TODO: need to check if new pack file needed. Create one if needed based on the
+            // growth of size.
+            // let (_, hash_hex) =
+            //     _stream_to_packs(stream, &mut fpack, &conn, offset, current_pack_id)?;
+            let hasher = Sha256::new();
+            let mut hwriter = HashWriter::new(&fpack, hasher);
+
+            // 512 MiB TODO: make it configurable??
+            let chunk_size = 524_288;
+            let bytes_copied = copy_by_chunk(stream, &mut hwriter, chunk_size)?;
+
+            let hash = hwriter.hasher.finalize();
+            let hash_hex = hex::encode(hash);
+
+            // entry record to DB
+            // let packin = PackEntry {
+            //     hashkey: hash_hex.clone(),
+            //     compressed: false,
+            //     size: bytes_copied as u64,
+            //     offset,
+            //     length: bytes_copied as u64, // redundent as size
+            //     pack_id: current_pack_id,
+            // };
+            //
+            stmt.execute(params![
+                &hash_hex,
+                false,
+                bytes_copied as u64,
+                offset,
+                bytes_copied as u64,
+                current_pack_id
+            ])
+            .unwrap();
+            // .with_context(|| "insert to db")?;
+
+            results.push(hash_hex);
+        }
+    }
+    tx.commit()?;
 
     Ok(results)
 }
@@ -283,6 +318,10 @@ where
         pack_id: current_pack_id,
     };
 
-    db::insert(conn, &packin)?;
+    db::insert_packin(conn, &packin)?;
+
+    // // record with overhead of creating a packin in heap NOTE: this does not help too much
+    // db::insert(conn, &hash_hex, false, bytes_copied as u64, offset, bytes_copied as u64, current_pack_id)?;
+    //
     Ok((bytes_copied as u64, hash_hex))
 }

@@ -15,6 +15,10 @@ pub struct PackEntry {
 pub fn create(db: &PathBuf) -> anyhow::Result<()> {
     // Create the table if it doesn't already exist
     let conn = Connection::open(db).with_context(|| "create db")?;
+    conn.execute_batch(
+        "PRAGMA journal_mode = wal;",
+    )
+    .expect("PRAGMA");
     conn.execute(
         "CREATE TABLE IF NOT EXISTS db_object (
                     id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
@@ -56,7 +60,7 @@ pub fn stats(db: &PathBuf) -> anyhow::Result<(u64, u64)> {
     Ok((count, total_size))
 }
 
-pub fn insert(conn: &Connection, packin: &PackEntry) -> anyhow::Result<()> {
+pub fn insert_packin(conn: &Connection, packin: &PackEntry) -> anyhow::Result<()> {
     // NOTE: I use SQL: `INSERT OR IGNORE` to deal with duplicate keys
     let mut stmt = conn.prepare_cached("INSERT OR IGNORE INTO db_object (hashkey, compressed, size, offset, length, pack_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
     stmt.execute(
@@ -65,6 +69,17 @@ pub fn insert(conn: &Connection, packin: &PackEntry) -> anyhow::Result<()> {
 
     Ok(())
 }
+
+pub fn insert(conn: &Connection, hashkey: &str, compressed: bool, size: u64, offset: u64, length: u64, pack_id: u64) -> anyhow::Result<()> {
+    // NOTE: I use SQL: `INSERT OR IGNORE` to deal with duplicate keys
+    let mut stmt = conn.prepare_cached("INSERT OR IGNORE INTO db_object (hashkey, compressed, size, offset, length, pack_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
+    stmt.execute(
+            params![hashkey, compressed, size, offset, length, pack_id])
+        .with_context(|| "insert to db")?;
+
+    Ok(())
+}
+
 
 // XXX: sub from select_multiple which only query once
 pub fn select(conn: &Connection, hash_hex: &str) -> anyhow::Result<Option<PackEntry>> {

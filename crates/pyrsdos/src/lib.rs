@@ -8,12 +8,13 @@ use std::{
 use pyo3::{exceptions::PyValueError, prelude::*, types::PyBytes};
 use pyo3_file::PyFileLikeObject;
 use rsdos::{
-    add_file::{stream_to_loose, stream_to_packs, StoreType, _stream_to_packs},
+    add_file::{stream_to_loose, stream_to_packs, StoreType, _stream_to_packs, HashWriter, copy_by_chunk},
     status,
     utils::Dir,
     Config, Container, Object,
 };
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
+use sha2::{Digest, Sha256};
 use std::io::Read;
 
 #[pyclass(name = "_Container")]
@@ -60,10 +61,12 @@ impl PyContainer {
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))
     }
 
-    fn stream_to_packs_multi(&self, stream_lst: Vec<Py<PyAny>>) -> PyResult<Vec<String>> {
-        let mut results = Vec::new();
+    // XXX: this function is almost re-implemented from `rsdos::stream_to_packs_multi` in order to
+    // optimize directly in the pyo3 wrapper to see the effect on performance optimization.
+    fn stream_to_packs_multi(&self, sources: Vec<Py<PyAny>>) -> PyResult<Vec<String>> {
+        let mut results = Vec::with_capacity(sources.len());
         let packs = self.inner.packs()?;
-        let conn = Connection::open(self.inner.packs_db()?).unwrap();
+        let mut conn = Connection::open(self.inner.packs_db()?).unwrap();
 
         let mut current_pack_id: u64 = 0;
         if !Dir(&packs).is_empty().unwrap() {
@@ -71,7 +74,7 @@ impl PyContainer {
                 let path = entry?.path();
                 if let Some(filename) = path.file_name() {
                     let n = filename.to_string_lossy();
-                    let n = n.parse().unwrap();
+                    let n = n.parse()?;
                     current_pack_id = std::cmp::max(current_pack_id, n);
                 }
             }
@@ -96,18 +99,53 @@ impl PyContainer {
             .append(true)
             .open(Dir(&packs).at_path(&format!("{current_pack_id}")))?;
 
-        for stream in stream_lst {
-            // results.push(self.stream_to_packs(file)?);
-            let mut file_like =
-                PyFileLikeObject::with_requirements(stream, true, false, false, false)?;
+        let tx = conn.transaction().unwrap();
+        {
+            let mut stmt = tx.prepare_cached("INSERT OR IGNORE INTO db_object (hashkey, compressed, size, offset, length, pack_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)").unwrap();
 
-            // TODO: need to check if new pack file needed. Create one if needed based on the
-            // growth of size.
-            let (_, hash_hex) =
-                _stream_to_packs(&mut file_like, &mut fpack, &conn, offset, current_pack_id)?;
+            for stream in sources {
+                // results.push(self.stream_to_packs(file)?);
+                let mut file_like = PyFileLikeObject::with_requirements(stream, true, false, false, false)?;
 
-            results.push(hash_hex);
+                // TODO: need to check if new pack file needed. Create one if needed based on the
+                // TODO: Large overhead to create hasher and hashwrite for every stream, it can be
+                // reused.
+                let hasher = Sha256::new();
+                let mut hwriter = HashWriter::new(&fpack, hasher);
+
+                // Pack chunk size: 64 MiB TODO: make it configurable??
+                let chunk_size = 65_536;
+                let bytes_copied = copy_by_chunk(&mut file_like, &mut hwriter, chunk_size)?;
+
+                let hash = hwriter.hasher.finalize();
+                let hash_hex = hex::encode(hash);
+                // let hash_hex = "0".to_string();
+
+                // entry record to DB
+                // let packin = PackEntry {
+                //     hashkey: hash_hex.clone(),
+                //     compressed: false,
+                //     size: bytes_copied as u64,
+                //     offset,
+                //     length: bytes_copied as u64, // redundent as size
+                //     pack_id: current_pack_id,
+                // };
+                //
+                stmt.execute(params![
+                    &hash_hex,
+                    false,
+                    bytes_copied as u64,
+                    offset,
+                    bytes_copied as u64,
+                    current_pack_id
+                ])
+                .unwrap();
+                // .with_context(|| "insert to db")?;
+
+                results.push(hash_hex);
+            }
         }
+        tx.commit().unwrap();
 
         Ok(results)
     }

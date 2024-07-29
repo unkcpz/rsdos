@@ -580,6 +580,7 @@ dependencies = [
 name = "pyrsdos"
 version = "0.1.0"
 dependencies = [
+ "hex",
  "pyo3",
  "pyo3-file",
  "rsdos",
