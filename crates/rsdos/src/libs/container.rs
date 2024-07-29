@@ -77,9 +77,9 @@ impl Container {
             anyhow::bail!("{} not exist, initialize first", self.path.display());
         }
 
-        // if !self.path.is_dir() {
-        //     anyhow::bail!("{} is not a directory", self.path.display());
-        // }
+        if !self.path.is_dir() {
+            anyhow::bail!("{} is not a directory", self.path.display());
+        }
 
         if Dir(&self.path).is_empty()? {
             anyhow::bail!("{} is empty, initialize first", self.path.display());
@@ -114,8 +114,6 @@ impl Container {
             anyhow::bail!("{} not exist", path.display());
         }
 
-        // NOTE: profiling shows this check calls fs and loose check is called in every from_hash
-        // call.
         if !path.is_dir() {
             anyhow::bail!("{} is not a directory", path.display());
         }

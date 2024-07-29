@@ -1,8 +1,8 @@
-use crate::Container;
+use crate::{utils::Dir, Container};
 use anyhow::Context;
 use sha2::{Digest, Sha256};
 use std::{
-    fs,
+    fs::{self, OpenOptions},
     io::{self, BufReader, BufWriter, Read, Write},
     path::PathBuf,
 };
@@ -12,6 +12,9 @@ struct HashWriter<W, H> {
     writer: W,
     hasher: H,
 }
+
+// XXX: should read from container.config
+const PACK_THRESHOLD: u64 = 4 * 1024 * 1024; // 4 GiB
 
 impl<W, H> HashWriter<W, H>
 where
@@ -64,7 +67,16 @@ fn copy_by_chunk<R: Read, W: Write>(
     Ok(total_bytes_copied)
 }
 
-pub fn add_file(file: &PathBuf, cnt: &Container) -> anyhow::Result<(String, String, u64)> {
+pub enum StoreType {
+    Loose,
+    Packs,
+}
+
+pub fn add_file(
+    file: &PathBuf,
+    cnt: &Container,
+    target: StoreType,
+) -> anyhow::Result<(String, String, u64)> {
     let stat = fs::metadata(file).with_context(|| format!("stat {}", file.display()))?;
     let expected_size = stat.len();
 
@@ -74,7 +86,10 @@ pub fn add_file(file: &PathBuf, cnt: &Container) -> anyhow::Result<(String, Stri
         fs::File::open(file).with_context(|| format!("open {} for read", file.display()))?;
     let mut source = BufReader::new(source);
 
-    let (bytes_streamd, hash_hex) = stream_to_loose(&mut source, cnt)?;
+    let (bytes_streamd, hash_hex) = match target {
+        StoreType::Loose => stream_to_loose(&mut source, cnt)?,
+        StoreType::Packs => stream_to_pack(&mut source, cnt)?,
+    };
 
     anyhow::ensure!(
         bytes_streamd == expected_size,
@@ -101,7 +116,7 @@ where
     let dst = cnt.sandbox()?.join(dst);
     let writer =
         fs::File::create(&dst).with_context(|| format!("open {} for write", dst.display()))?;
-    let writer = BufWriter::new(writer);
+    let writer = BufWriter::new(writer); // XXX: ??? is this convert necessary??
 
     // TODO: hasher can be passed as ref and using reset to avoid re-alloc in heap
     let hasher = Sha256::new();
@@ -126,6 +141,57 @@ where
         fs::rename(&dst, &loose_dst)
             .with_context(|| format!("move from {} to {}", dst.display(), loose_dst.display()))?;
     }
+
+    Ok((bytes_copied as u64, hash_hex))
+}
+
+fn stream_to_pack<R>(source: &mut R, cnt: &Container) -> anyhow::Result<(u64, String)>
+where
+    R: Read,
+{
+    let chunk_size = 524_288; // 512 MiB TODO: make it configurable??
+                              //
+                              // write to <cnt_path>/packs/<u32>
+    let packs = cnt.packs()?;
+
+    // Get the current addable pack
+    // Create pack_id = 0 if not yet packs exists.
+    let mut current_pack_id: u64 = 0;
+    if !Dir(&packs).is_empty()? {
+        for entry in packs.read_dir()? {
+            let path = entry?.path();
+            if let Some(filename) = path.file_name() {
+                let n = filename.to_string_lossy();
+                let n = n.parse().with_context(|| format!("parse {n} to u64"))?;
+                current_pack_id = std::cmp::max(current_pack_id, n);
+            }
+        }
+    }
+
+    // If size of current pack exceed the single pack limit, create next pack
+    let p = Dir(&packs).at_path(&format!("{current_pack_id}"));
+    // dbg!(p.clone());
+    let fpack = fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(p)
+        .with_context(|| format!("open packs/{current_pack_id}"))?;
+
+    if fpack.metadata()?.len() > PACK_THRESHOLD {
+        current_pack_id += 1;
+    }
+    let fpack = fs::OpenOptions::new()
+        .append(true)
+        .open(Dir(&packs).at_path(&format!("{current_pack_id}")))?;
+
+    let hasher = Sha256::new();
+    let mut hwriter = HashWriter::new(fpack, hasher);
+
+    let bytes_copied = copy_by_chunk(source, &mut hwriter, chunk_size)?;
+
+    let hash = hwriter.hasher.finalize();
+    let hash_hex = hex::encode(hash);
 
     Ok((bytes_copied as u64, hash_hex))
 }

@@ -1,6 +1,7 @@
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 use human_bytes::human_bytes;
+use rsdos::add_file::StoreType;
 use rsdos::{config::Config, utils::create_dir, Container};
 use std::{env, fmt::Debug, path::PathBuf};
 
@@ -116,7 +117,7 @@ fn main() -> anyhow::Result<()> {
                     continue;
                 }
 
-                let (hash_hex, filename, expected_size) = rsdos::add_file(&path, cnt)?;
+                let (hash_hex, filename, expected_size) = rsdos::add_file(&path, cnt, StoreType::Loose)?;
                 println!(
                     "{} - {}: {}",
                     hash_hex,
