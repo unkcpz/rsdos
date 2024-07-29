@@ -81,7 +81,7 @@ mod tests {
         write!(tf, "test x").unwrap();
 
         let fp = tf.into_temp_path();
-        let hash_hex = rsdos::add_file(&fp.to_path_buf(), &cnt).expect("unable to add file {i}");
+        let (hash_hex, _, _) = rsdos::add_file(&fp.to_path_buf(), &cnt).expect("unable to add file {i}");
 
         // get obj by hash_hex
         let cnt = rsdos::Container::new(&cnt_path);
@@ -90,6 +90,6 @@ mod tests {
         let mut content = String::new();
         obj.unwrap().reader.read_to_string(&mut content).unwrap();
 
-        assert_eq!(content, "test x\n".to_string());
+        assert_eq!(content, "test x".to_string());
     }
 }
