@@ -35,6 +35,7 @@ pub struct SizeInfo {
 }
 
 pub fn traverse_loose(cnt: &Container) -> anyhow::Result<impl Iterator<Item = PathBuf>> {
+    // TODO: using Dependency Injection mode to notify and handle progress by outside func
     let spinnner = ProgressBar::new_spinner().with_message("Auditing container stat ...");
     spinnner.enable_steady_tick(Duration::from_millis(500));
 

@@ -1,5 +1,6 @@
 import pytest
 import hashlib
+import random
 
 @pytest.mark.benchmark(group="read_single")
 def test_loose_read_single_rs(benchmark, rs_container):
@@ -59,6 +60,7 @@ def test_loose_read_rs(benchmark, rs_container):
         hashkeys.append(rs_container.add_object(content))
     expected_results = dict(zip(hashkeys, data_content))
 
+    random.shuffle(hashkeys)
     # Note that here however the OS will be using the disk caches
     results = benchmark(rs_container.get_objects_content, hashkeys)
 
@@ -74,6 +76,7 @@ def test_loose_read_rs_raw(benchmark, rs_container):
         hashkeys.append(rs_container.add_object(content))
     expected_results = dict(zip(hashkeys, data_content))
 
+    random.shuffle(hashkeys)
     # Note that here however the OS will be using the disk caches
     results = benchmark(rs_container.get_objects_content_raw_rs, hashkeys)
 
