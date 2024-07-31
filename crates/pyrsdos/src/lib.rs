@@ -1,14 +1,16 @@
 use std::{
     collections::HashMap,
-    fs,
-    io::{self, Cursor, Seek},
+    fs::{self, File},
+    io::{self, BufReader, Cursor, Seek, Take},
     path::PathBuf,
 };
 
 use pyo3::{exceptions::PyValueError, prelude::*, types::PyBytes};
 use pyo3_file::PyFileLikeObject;
 use rsdos::{
-    add_file::{stream_to_loose, stream_to_packs, StoreType, _stream_to_packs, HashWriter, copy_by_chunk},
+    add_file::{
+        stream_to_loose, stream_to_packs, HashWriter, StoreType, _stream_to_packs, copy_by_chunk,
+    },
     status,
     utils::Dir,
     Config, Container, Object,
@@ -87,17 +89,12 @@ impl PyContainer {
             .truncate(false)
             .open(p)?;
 
-        // Use new pack if size of the current pack reach or exceed the threshold limit
-        let offset = if fpack.metadata()?.len() >= self.inner.config()?.pack_size_target {
-            current_pack_id += 1;
-            0
-        } else {
-            fpack.seek(io::SeekFrom::End(0))?
-        };
         let mut fpack = fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(Dir(&packs).at_path(&format!("{current_pack_id}")))?;
+
+        let pack_size_target = self.inner.config()?.pack_size_target;
 
         let tx = conn.transaction().unwrap();
         {
@@ -105,7 +102,17 @@ impl PyContainer {
 
             for stream in sources {
                 // results.push(self.stream_to_packs(file)?);
-                let mut file_like = PyFileLikeObject::with_requirements(stream, true, false, false, false)?;
+                let mut file_like =
+                    PyFileLikeObject::with_requirements(stream, true, false, false, false)?;
+
+                // Use new pack if size of the current pack reach or exceed the threshold limit
+                // TODO: some overhead here in file metadata check
+                let offset = if fpack.metadata()?.len() >= pack_size_target {
+                    current_pack_id += 1;
+                    0
+                } else {
+                    fpack.seek(io::SeekFrom::End(0))?
+                };
 
                 // TODO: need to check if new pack file needed. Create one if needed based on the
                 // TODO: Large overhead to create hasher and hashwrite for every stream, it can be
@@ -119,18 +126,7 @@ impl PyContainer {
 
                 let hash = hwriter.hasher.finalize();
                 let hash_hex = hex::encode(hash);
-                // let hash_hex = "0".to_string();
 
-                // entry record to DB
-                // let packin = PackEntry {
-                //     hashkey: hash_hex.clone(),
-                //     compressed: false,
-                //     size: bytes_copied as u64,
-                //     offset,
-                //     length: bytes_copied as u64, // redundent as size
-                //     pack_id: current_pack_id,
-                // };
-                //
                 stmt.execute(params![
                     &hash_hex,
                     false,
@@ -187,27 +183,42 @@ impl PyContainer {
             })
             .collect();
 
-        // println!("{map:?}", map);
         Ok(d)
     }
 
     // TODO: try here return an iterator, use it in get_objects_content, see if it is getting fast
 
     // XXX: return an Object struct???
-    fn stream_from_loose(&self, py: Python, obj_hash: &str) -> PyResult<Py<PyStreamObject>> {
+    fn stream_from_loose(
+        &self,
+        py: Python,
+        obj_hash: &str,
+    ) -> PyResult<Option<Py<PyLooseStreamObject>>> {
         let obj_path = self
             .inner
             .loose()?
             .join(format!("{}/{}", &obj_hash[..2], &obj_hash[2..]));
         if obj_path.exists() {
-            let file_like = PyStreamObject::new(obj_path.to_str().unwrap().to_string())
+            let file_like = PyLooseStreamObject::new(obj_path.to_str().unwrap().to_string())
                 .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))?;
 
-            Ok(Py::new(py, file_like)?)
+            Ok(Some(Py::new(py, file_like)?))
         } else {
-            Err(PyErr::new::<pyo3::exceptions::PyIOError, _>(
-                "object not exist".to_string(),
-            ))
+            Ok(None)
+        }
+    }
+
+    fn stream_from_packs(
+        &self,
+        py: Python,
+        obj_hash: &str,
+    ) -> PyResult<Option<Py<PyPacksStreamObject>>> {
+        let obj = rsdos::Object::from_hash(obj_hash, &self.inner, &StoreType::Packs)?;
+        if let Some(obj) = obj {
+            let file_like = PyPacksStreamObject::new(obj)?;
+            Ok(Some(Py::new(py, file_like)?))
+        } else {
+            Ok(None)
         }
     }
 
@@ -223,23 +234,45 @@ impl PyContainer {
     }
 }
 
+#[pyclass]
+struct PyPacksStreamObject {
+    inner: Object<Take<BufReader<File>>>,
+}
+
+#[pymethods]
+impl PyPacksStreamObject {
+    fn read(&mut self, py: Python) -> PyResult<Py<PyBytes>> {
+        let mut buf = vec![0; self.inner.expected_size];
+        let n = self.inner.reader.read(&mut buf).map_err(|e| {
+            pyo3::exceptions::PyIOError::new_err(format!("Failed to read file: {}", e))
+        })?;
+        Ok(PyBytes::new_bound(py, &buf[..n]).into())
+    }
+}
+
+impl PyPacksStreamObject {
+    fn new(obj: Object<Take<BufReader<File>>>) -> PyResult<Self> {
+        Ok(PyPacksStreamObject { inner: obj })
+    }
+}
+
 // NOTE: this is re-implement of rsdos::Object without generic (which is for any Reader)
 // since pyO3 need non-opaque to wrapped to python class.
 #[pyclass]
-struct PyStreamObject {
+struct PyLooseStreamObject {
     inner: fs::File,
     size: u64,
 }
 
 #[pymethods]
-impl PyStreamObject {
+impl PyLooseStreamObject {
     #[new]
     fn new(filename: String) -> PyResult<Self> {
         let file = fs::File::open(filename).map_err(|e| {
             pyo3::exceptions::PyIOError::new_err(format!("Failed to open file: {}", e))
         })?;
         let size = file.metadata()?.len();
-        Ok(PyStreamObject { inner: file, size })
+        Ok(PyLooseStreamObject { inner: file, size })
     }
 
     fn read(&mut self, py: Python) -> PyResult<Py<PyBytes>> {

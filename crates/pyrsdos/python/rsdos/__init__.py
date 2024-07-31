@@ -24,25 +24,30 @@ class Container:
     def get_folder(self) -> Path:
         return self.cnt.get_folder()
 
-    def get_object_stream(self, hashkey: str) -> StreamReadBytesType:
-        return self.cnt.stream_from_loose(hashkey)
+    def get_object_stream(self, hashkey: str) -> StreamReadBytesType | None:
+        obj = self.cnt.stream_from_loose(hashkey)
+
+        if obj is not None:
+            return obj
+        else:
+            return self.cnt.stream_from_packs(hashkey)
 
     def iter_objects_stream(
         self, hashkeys: t.List[str], skip_if_missing: bool = True
     ) -> t.Iterator[t.Tuple[str, t.Optional[StreamReadBytesType]]]:
         for hashkey in hashkeys:
-            try:
-                stream = self.get_object_stream(hashkey)
-            except ValueError:
-                if skip_if_missing:
-                    continue
-                else:
-                    stream = None
+            stream = self.get_object_stream(hashkey)
+            if stream is None and skip_if_missing:
+                continue
 
             yield (hashkey, stream)
 
-    def get_object_content(self, hashkey: str) -> bytes:
-        return self.get_object_stream(hashkey).read()
+    def get_object_content(self, hashkey: str) -> bytes | None:
+        obj = self.get_object_stream(hashkey)
+        if obj is not None:
+            return obj.read()
+        else:
+            return obj
 
     # XXX: althrough it is faster  (~2x faster) than legacy dos (w.r.t to < py3.11), but this is way more slower than 
     # the speed gained from `get_object_content` which is ~x30 faster.
@@ -51,7 +56,11 @@ class Container:
     def get_objects_content(        
         self, hashkeys: t.List[str], skip_if_missing: bool = True
     ) -> t.Dict[str, t.Optional[bytes]]:
-        return {k: v.read() for k, v in self.iter_objects_stream(hashkeys, skip_if_missing)}
+        d = {}
+        for k, v in self.iter_objects_stream(hashkeys, skip_if_missing):
+            d[k] = v.read() if v is not None else None
+
+        return d
         
     def get_objects_content_raw_rs(
         self, hashkeys: t.List[str], skip_if_missing: bool = True

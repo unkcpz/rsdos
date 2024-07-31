@@ -1,5 +1,6 @@
 use std::{fs, usize};
-use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
+use std::fs::File;
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Take};
 
 use crate::add_file::StoreType;
 use crate::{db, Container};
@@ -16,7 +17,7 @@ impl Object<()> {
         obj_hash: &str,
         cnt: &Container,
         store_type: &StoreType,
-    ) -> anyhow::Result<Option<Object<impl BufRead>>> {
+    ) -> anyhow::Result<Option<Object<Take<BufReader<File>>>>> {
         let obj = match store_type {
             StoreType::Loose => {
                 let obj = cnt
