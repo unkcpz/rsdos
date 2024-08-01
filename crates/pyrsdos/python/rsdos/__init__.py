@@ -24,26 +24,27 @@ class Container:
     def get_folder(self) -> Path:
         return self.cnt.get_folder()
 
-    def get_object_stream(self, hashkey: str) -> StreamReadBytesType | None:
+    def get_object_stream_loose(self, hashkey: str) -> StreamReadBytesType | None:
         obj = self.cnt.stream_from_loose(hashkey)
 
-        if obj is not None:
-            return obj
-        else:
-            return self.cnt.stream_from_packs(hashkey)
+        return obj
+        # if obj is not None:
+        #     return obj
+        # else:
+        #     return self.cnt.stream_from_packs(hashkey)
 
-    def iter_objects_stream(
+    def iter_objects_stream_loose(
         self, hashkeys: t.List[str], skip_if_missing: bool = True
     ) -> t.Iterator[t.Tuple[str, t.Optional[StreamReadBytesType]]]:
         for hashkey in hashkeys:
-            stream = self.get_object_stream(hashkey)
+            stream = self.get_object_stream_loose(hashkey)
             if stream is None and skip_if_missing:
                 continue
 
             yield (hashkey, stream)
 
     def get_object_content(self, hashkey: str) -> bytes | None:
-        obj = self.get_object_stream(hashkey)
+        obj = self.get_object_stream_loose(hashkey)
         if obj is not None:
             return obj.read()
         else:
@@ -57,8 +58,14 @@ class Container:
         self, hashkeys: t.List[str], skip_if_missing: bool = True
     ) -> t.Dict[str, t.Optional[bytes]]:
         d = {}
-        for k, v in self.iter_objects_stream(hashkeys, skip_if_missing):
-            d[k] = v.read() if v is not None else None
+        # loose
+        # for k, v in self.iter_objects_stream_loose(hashkeys, skip_if_missing):
+        #     d[k] = v.read() if v is not None else None
+
+        # packs
+        for obj in self.cnt.stream_from_packs_multi(hashkeys):
+            k = obj.hashkey
+            d[k] = obj.read()
 
         return d
         

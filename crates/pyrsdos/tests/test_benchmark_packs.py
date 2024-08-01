@@ -21,7 +21,7 @@ def test_packs_read_rs_(rs_container):
 @pytest.mark.benchmark(group="read_10000")
 def test_packs_read_rs(benchmark, rs_container):
     """Add 10'000 objects to the container in loose form, and benchmark write and read speed."""
-    num_files = 100
+    num_files = 1000
     data_content = [str(i).encode("ascii") for i in range(num_files)]
     expected_hashkeys = [
         hashlib.sha256(content).hexdigest() for content in data_content
@@ -37,8 +37,8 @@ def test_packs_read_rs(benchmark, rs_container):
 
 @pytest.mark.benchmark(group="read_10000")
 def test_packs_read_py(benchmark, py_container):
-    """Add 1'000 objects to the container in loose form, and benchmark write and read speed."""
-    num_files = 100
+    """Add 10'000 objects to the container in loose form, and benchmark write and read speed."""
+    num_files = 1000
     data_content = [str(i).encode("ascii") for i in range(num_files)]
     expected_hashkeys = [
         hashlib.sha256(content).hexdigest() for content in data_content

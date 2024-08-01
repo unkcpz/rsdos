@@ -10,10 +10,7 @@ use pyo3_file::PyFileLikeObject;
 use rsdos::{
     add_file::{
         stream_to_loose, stream_to_packs, HashWriter, StoreType, _stream_to_packs, copy_by_chunk,
-    },
-    status,
-    utils::Dir,
-    Config, Container, Object,
+    }, object::stream_from_packs_multi, status, utils::Dir, Config, Container, Object
 };
 use rusqlite::{params, Connection};
 use sha2::{Digest, Sha256};
@@ -208,6 +205,7 @@ impl PyContainer {
         }
     }
 
+    // XXX: unified parameters name to hashkeys to align with legacy dos
     fn stream_from_packs(
         &self,
         py: Python,
@@ -220,6 +218,20 @@ impl PyContainer {
         } else {
             Ok(None)
         }
+    }
+
+    fn stream_from_packs_multi(
+        &self,
+        py: Python,
+        hashkeys: Vec<String>,
+    ) -> PyResult<Vec<Py<PyPacksStreamObject>>> {
+        let objs = stream_from_packs_multi(&self.inner, hashkeys)?;
+        let mut streams = vec![];
+        for obj in objs {
+            let file_like = PyPacksStreamObject::new(obj)?;
+            streams.push(Py::new(py, file_like)?);
+        }
+        Ok(streams)
     }
 
     // XXX: combine with get_n_objs and return dicts
@@ -247,6 +259,11 @@ impl PyPacksStreamObject {
             pyo3::exceptions::PyIOError::new_err(format!("Failed to read file: {}", e))
         })?;
         Ok(PyBytes::new_bound(py, &buf[..n]).into())
+    }
+
+    #[getter]
+    fn hashkey(&self) -> String {
+        self.inner.hashkey.clone()
     }
 }
 

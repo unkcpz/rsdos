@@ -13,7 +13,7 @@
 - [x] pyo3 bindings and get object iter bind
 - [x] 1st benchmark with python dos on loose read and write behaviors
 - [x] Pack write
-- [ ] Pack read
+- [x] Pack read
 - [ ] Solve HashWriter overhead by using reference instead of mem alloc for each entry visiting
 - [ ] loose -> Pack
 - [ ] 2nd benchmark on loose-P pack and Pack read/write
