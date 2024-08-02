@@ -14,7 +14,7 @@
 - [x] 1st benchmark with python dos on loose read and write behaviors
 - [x] Pack write
 - [x] Pack read
-- [ ] Solve HashWriter overhead by using reference instead of mem alloc for each entry visiting
+- [x] Solve HashWriter overhead by using reference instead of mem alloc for each entry visiting
 - [ ] loose -> Pack
 - [ ] 2nd benchmark on loose-P pack and Pack read/write
 - [ ] benchmark on loose -> Pack without compress

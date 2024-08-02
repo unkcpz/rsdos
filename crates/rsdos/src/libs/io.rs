@@ -16,23 +16,22 @@ pub struct Object<R> {
     pub hashkey: String,
 }
 
-#[derive(Default)]
-pub struct HashWriter<W, H> {
+pub struct HashWriter<'a, W, H> {
     pub writer: W,
-    pub hasher: H,
+    pub hasher: &'a mut H,
 }
 
-impl<W, H> HashWriter<W, H>
+impl<'a, W, H> HashWriter<'a, W, H>
 where
     W: Write,
     H: Digest,
 {
-    pub fn new(writer: W, hasher: H) -> Self {
+    pub fn new(writer: W, hasher: &'a mut H) -> Self {
         Self { writer, hasher }
     }
 }
 
-impl<W, H> Write for HashWriter<W, H>
+impl<'a, W, H> Write for HashWriter<'a, W, H>
 where
     W: Write,
     H: Digest,
@@ -134,7 +133,6 @@ pub fn multi_pull_from_packs(
     let mut objs: Vec<_> = Vec::with_capacity(hashkeys.len());
     for chunk in hashkeys.chunks(IN_SQL_MAX_LENGTH) {
         let placeholders: Vec<&str> = (0..chunk.len()).map(|_| "?").collect();
-        // XXX: overhead that create a sql every time. but in one chunk should be fine.
         let mut stmt = conn.prepare_cached(&format!("SELECT hashkey, compressed, size, offset, length, pack_id FROM db_object WHERE hashkey IN ({})", placeholders.join(",")))?;
         let rows = stmt.query_map(params_from_iter(chunk), |row| {
             let hashkey: String = row.get(0)?;
@@ -184,11 +182,11 @@ where
     let dst = cnt.sandbox()?.join(dst);
     let writer =
         fs::File::create(&dst).with_context(|| format!("open {} for write", dst.display()))?;
-    let writer = BufWriter::new(writer); // XXX: ??? is this convert necessary??
+    let mut writer = BufWriter::new(writer); // XXX: ??? is this convert necessary??
 
     // TODO: hasher can be passed as ref and using reset to avoid re-alloc in heap
-    let hasher = Sha256::new();
-    let mut hwriter = HashWriter::new(writer, hasher);
+    let mut hasher = Sha256::new();
+    let mut hwriter = HashWriter::new(&mut writer, &mut hasher);
 
     // write to object and store it in {hash:..2}/{hash:2..} file
     // first write to tmp and get the hash, than move it to the location.
@@ -197,7 +195,7 @@ where
     // have to do the pre-allocate with specific chunk size.
     let bytes_copied = copy_by_chunk(source, &mut hwriter, chunk_size)?;
     // let bytes_copied = std::io::copy(source, &mut hwriter)?;
-    let hash = hwriter.hasher.finalize();
+    let hash = hasher.finalize();
     let hash_hex = hex::encode(hash);
 
     let loose = cnt.loose()?;
@@ -223,14 +221,14 @@ fn _stream_to_packs<R>(
 where
     R: Read,
 {
-    let hasher = Sha256::new();
-    let mut hwriter = HashWriter::new(fpack, hasher);
+    let mut hasher = Sha256::new();
+    let mut hwriter = HashWriter::new(fpack, &mut hasher);
 
     // 64 MiB TODO: make it configurable??
     let chunk_size = 65_536;
     let bytes_copied = copy_by_chunk(source, &mut hwriter, chunk_size)?;
 
-    let hash = hwriter.hasher.finalize();
+    let hash = hasher.finalize();
     let hash_hex = hex::encode(hash);
 
     // entry record to DB
@@ -343,13 +341,11 @@ where
     {
         let mut stmt = tx.prepare_cached("INSERT OR IGNORE INTO db_object (hashkey, compressed, size, offset, length, pack_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
 
+        let mut hasher = Sha256::new();
         for stream in sources {
             // TODO: need to check if new pack file needed. Create one if needed based on the
             // growth of size.
-            // TODO: Large overhead to create hasher and hashwrite for every stream, it can be
-            // reused.
-            let hasher = Sha256::new();
-            let mut hwriter = HashWriter::new(&fpack, hasher);
+            let mut hwriter = HashWriter::new(&mut fpack, &mut hasher);
 
             // NOTE: Using small chunk_size can be fast in terms of benchmark.
             // Ideally should accept a hint for buffer size (loose -> packs)
@@ -357,7 +353,7 @@ where
             let chunk_size = 65_536;
             let bytes_copied = copy_by_chunk(stream, &mut hwriter, chunk_size)?;
 
-            let hash = hwriter.hasher.finalize();
+            let hash = hasher.finalize_reset();
             let hash_hex = hex::encode(hash);
 
             stmt.execute(params![
