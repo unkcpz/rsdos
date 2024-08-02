@@ -16,9 +16,9 @@ pub use crate::add_file::add_file;
 pub mod status;
 pub use crate::status::stat;
 
-#[path ="libs/object.rs"]
-pub mod object;
-pub use crate::object::Object;
+#[path ="libs/io.rs"]
+pub mod io;
+pub use crate::io::Object;
 
 #[path ="libs/container.rs"]
 pub mod container;

@@ -6,12 +6,7 @@ use std::{
 
 use pyo3::{exceptions::PyValueError, prelude::*, types::PyBytes};
 use pyo3_file::PyFileLikeObject;
-use rsdos::{
-    add_file::{stream_to_loose, stream_to_packs, StoreType},
-    object::stream_from_packs_multi,
-    status,
-    Config, Container, Object,
-};
+use rsdos::{io::multi_pull_from_packs, status, Config, Container};
 
 #[pyclass(name = "_Container")]
 struct PyContainer {
@@ -43,25 +38,21 @@ impl PyContainer {
         self.inner.validate().is_ok()
     }
 
-    fn stream_to_loose(&self, stream: Py<PyAny>) -> PyResult<(u64, String)> {
+    fn push_to_loose(&self, stream: Py<PyAny>) -> PyResult<(u64, String)> {
         let mut file_like = PyFileLikeObject::with_requirements(stream, true, false, false, false)?;
 
-        stream_to_loose(&mut file_like, &self.inner)
+        rsdos::io::push_to_loose(&mut file_like, &self.inner)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))
     }
 
-    fn stream_to_packs(&self, stream: Py<PyAny>) -> PyResult<(u64, String)> {
+    fn push_to_packs(&self, stream: Py<PyAny>) -> PyResult<(u64, String)> {
         let mut file_like = PyFileLikeObject::with_requirements(stream, true, false, false, false)?;
 
-        stream_to_packs(&mut file_like, &self.inner)
+        rsdos::io::push_to_packs(&mut file_like, &self.inner)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))
     }
 
-    fn stream_to_packs_multi(
-        &self,
-        py: Python,
-        sources: Vec<Py<PyBytes>>,
-    ) -> PyResult<Vec<String>> {
+    fn multi_push_to_packs(&self, py: Python, sources: Vec<Py<PyBytes>>) -> PyResult<Vec<String>> {
         let mut ll = Vec::with_capacity(sources.len());
         for source in sources {
             let b = source.bind(py);
@@ -70,29 +61,28 @@ impl PyContainer {
         }
 
         let mut_refs: Vec<&mut Cursor<Vec<u8>>> = ll.iter_mut().collect();
-         
-        let results = rsdos::add_file::stream_to_packs_multi(mut_refs, &self.inner)?;
+
+        let results = rsdos::io::multi_push_to_packs(mut_refs, &self.inner)?;
         Ok(results)
     }
 
     // This is 2 times fast than write to writer from py world since there is no overhead to cross
     // boundary for every py object.
-    fn get_loose_objects_content(&self, hashkeys: Vec<String>) -> HashMap<String, Option<Vec<u8>>> {
+    fn multi_pull_from_loose(&self, hashkeys: Vec<String>) -> HashMap<String, Option<Vec<u8>>> {
         let mut buf = Vec::new();
         hashkeys
             .iter()
             .map(|hashkey| {
-                let content =
-                    match rsdos::object::pull_from_loose(hashkey, &self.inner).unwrap() {
-                        Some(mut obj) => {
-                            buf.clear();
-                            let mut cursor = Cursor::new(&mut buf);
+                let content = match rsdos::io::pull_from_loose(hashkey, &self.inner).unwrap() {
+                    Some(mut obj) => {
+                        buf.clear();
+                        let mut cursor = Cursor::new(&mut buf);
 
-                            std::io::copy(&mut obj.reader, &mut cursor).unwrap();
-                            Some(buf.clone())
-                        }
-                        _ => None,
-                    };
+                        std::io::copy(&mut obj.reader, &mut cursor).unwrap();
+                        Some(buf.clone())
+                    }
+                    _ => None,
+                };
                 (hashkey.to_owned(), content)
             })
             .collect()
@@ -107,8 +97,8 @@ impl PyContainer {
     }
 
     // XXX: Vec<u8> -> ByteStr ?
-    fn stream_from_packs_multi(&self, hashkeys: Vec<String>) -> PyResult<HashMap<String, Vec<u8>>> {
-        let mut objs = stream_from_packs_multi(&self.inner, &hashkeys)?;
+    fn multi_pull_from_packs(&self, hashkeys: Vec<String>) -> PyResult<HashMap<String, Vec<u8>>> {
+        let mut objs = multi_pull_from_packs(&self.inner, &hashkeys)?;
         let mut buf = Vec::new();
         let res = objs
             .iter_mut()
@@ -147,7 +137,7 @@ struct Stream;
 
 impl Stream {
     fn write_from_loose(cnt: &Container, hash: &str, py_filelike: Py<PyAny>) -> PyResult<()> {
-        if let Some(mut obj) = rsdos::object::pull_from_loose(hash, cnt)? {
+        if let Some(mut obj) = rsdos::io::pull_from_loose(hash, cnt)? {
             match PyFileLikeObject::with_requirements(py_filelike, true, false, false, false) {
                 Ok(mut fl) => {
                     // copy from reader to writer
@@ -163,7 +153,7 @@ impl Stream {
     }
 
     fn write_from_packs(cnt: &Container, hash: &str, py_filelike: Py<PyAny>) -> PyResult<()> {
-        if let Some(mut obj) = rsdos::object::pull_from_packs(hash, cnt)? {
+        if let Some(mut obj) = rsdos::io::pull_from_packs(hash, cnt)? {
             match PyFileLikeObject::with_requirements(py_filelike, true, false, false, false) {
                 Ok(mut fl) => {
                     // copy from reader to writer

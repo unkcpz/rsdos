@@ -79,29 +79,31 @@ class Container:
     def get_objects_content(        
         self, hashkeys: t.List[str], skip_if_missing: bool = True
     ) -> t.Dict[str, t.Optional[bytes]]:
-        d = self.get_loose_objects_content_raw_rs(hashkeys, skip_if_missing)
+        d, not_found = self.get_loose_objects_content_raw_rs(hashkeys, skip_if_missing)
 
         # what not found in loose, try to find in packs
         # packs XXX: large speed overhead even no object in packs
-        for k, v in self.cnt.stream_from_packs_multi(hashkeys).items():
+        for k, v in self.cnt.multi_pull_from_packs(not_found).items():
             d[k] = bytes(v)
 
         return d
         
     def get_loose_objects_content_raw_rs(
         self, hashkeys: t.List[str], skip_if_missing: bool = True
-    ) -> t.Dict[str, t.Optional[bytes]]:
+    ) -> t.Tuple[t.Dict[str, t.Optional[bytes]], t.List[str]]:
         d = {}
-        for k, v in self.cnt.get_loose_objects_content(hashkeys).items():
+        not_found = []
+        for k, v in self.cnt.multi_pull_from_loose(hashkeys).items():
             if v is not None:
                 d[k] = bytes(v)
             else:
+                not_found.append(k)
                 if skip_if_missing:
                     continue
                 else:
                     d[k] = None
 
-        return d
+        return d, not_found
 
     def add_object(self, content: bytes) -> str:
         stream = io.BytesIO(content)
@@ -110,12 +112,11 @@ class Container:
     def add_object_to_packs(self, content: bytes) -> str:
         stream = io.BytesIO(content)
 
-        # import ipdb; ipdb.set_trace() 
         h = self.add_streamed_object_to_packs(stream)
         return h
 
     # XXX: I prefer name `add_objects_to_packs`
-    def add_objects_to_pack(  # pylint: disable=too-many-arguments
+    def add_objects_to_pack(  
         self,
         content_list: t.Union[t.List[bytes], t.Tuple[bytes, ...]],
         compress: bool = False,
@@ -125,17 +126,17 @@ class Container:
         do_fsync: bool = True,
         do_commit: bool = True,
     ) -> t.List[str]:
-        hkey_lst = self.cnt.stream_to_packs_multi(content_list)
+        hkey_lst = self.cnt.multi_push_to_packs(content_list)
         return hkey_lst
             
 
     def add_streamed_object(self, stream: StreamReadBytesType) -> str:
-        _, hashkey = self.cnt.stream_to_loose(stream)
+        _, hashkey = self.cnt.push_to_loose(stream)
 
         return hashkey
 
     def add_streamed_object_to_packs(self, stream: StreamReadBytesType) -> str:
-        _, hashkey = self.cnt.stream_to_packs(stream)
+        _, hashkey = self.cnt.push_to_packs(stream)
 
         return hashkey
 
