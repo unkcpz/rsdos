@@ -47,7 +47,7 @@ fn main() -> anyhow::Result<()> {
     let d: HashMap<String, String> = hashkeys
         .iter()
         .map(|hashkey| {
-            let content = match rsdos::object::pull_from_loose(hashkey, &cnt).unwrap()
+            let content = match rsdos::io::pull_from_loose(hashkey, &cnt).unwrap()
             {
                 Some(mut obj) => {
                     let mut buf = Vec::new();

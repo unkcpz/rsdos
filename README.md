@@ -15,8 +15,11 @@
 - [x] Pack write
 - [x] Pack read
 - [x] Solve HashWriter overhead by using reference instead of mem alloc for each entry visiting
+- [x] benchmark on packs read/write
+- [ ] profiling on packs read (db?, io?)
+- [ ] packs correctly on adding new packs file
 - [ ] loose -> Pack
-- [ ] 2nd benchmark on loose-P pack and Pack read/write
+- [ ] 2nd benchmark on loose->pack
 - [ ] benchmark on loose -> Pack without compress
 - [ ] compression
 - [ ] benchmark on pack with compress
@@ -25,6 +28,8 @@
 - [ ] backup
 - [ ] benchmark on optimize/validate/backup ...
 - [ ] own rust benchmark on detail performance tuning.
+- [ ] hide direct write to packs and shading with same loose structure
+- [ ] `io_uring`
 
 ## Design
 

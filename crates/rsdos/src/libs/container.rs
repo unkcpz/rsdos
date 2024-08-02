@@ -186,14 +186,14 @@ impl Container {
 #[cfg(test)]
 mod tests {
     use tempfile::tempdir;
-
     use crate::config;
-
     use super::*;
+
+    const PACK_SIZE_TARGET: u64 = 4 * 1024 * 1024;
 
     #[test]
     fn default_init() {
-        let config = config::Config::new(4);
+        let config = config::Config::new(PACK_SIZE_TARGET);
         let tmp = tempdir().unwrap();
         let cnt = Container::new(&tmp);
         assert!(Dir(&cnt.path).is_empty().unwrap());
@@ -206,7 +206,7 @@ mod tests {
 
     #[test]
     fn init_in_non_empty_folder() {
-        let config = config::Config::new(4);
+        let config = config::Config::new(PACK_SIZE_TARGET);
         let tmp = tempdir().unwrap();
         let cnt = Container::new(&tmp);
         let _ = fs::File::create(cnt.path.join("unexpected"));
