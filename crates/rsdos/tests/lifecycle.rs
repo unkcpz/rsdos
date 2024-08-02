@@ -94,7 +94,7 @@ mod tests {
 
         // get obj by hash_hex
         let cnt = rsdos::Container::new(&cnt_path);
-        let obj = rsdos::Object::from_hash(&hash_hex, &cnt, &StoreType::Loose)
+        let obj = rsdos::object::pull_from_loose(&hash_hex, &cnt)
             .expect("get object from hash");
 
         let mut content = String::new();
@@ -134,7 +134,7 @@ mod tests {
         //
         for (hash_hex, expected_content) in orig_objs {
             // find content from packs file
-            let mut obj = rsdos::Object::from_hash(&hash_hex, &cnt, &StoreType::Packs)?.unwrap();
+            let mut obj = rsdos::object::pull_from_packs(&hash_hex, &cnt)?.unwrap();
             let mut buffer = vec![];
             std::io::copy(&mut obj.reader, &mut buffer)?;
             let content = String::from_utf8(buffer)?;
@@ -189,7 +189,7 @@ mod tests {
         // let out = fs::read_to_string(cnt.packs()?.join("0"))?;
         //
         for (hash_hex, expected_content) in orig_objs {
-            let mut obj = rsdos::Object::from_hash(&hash_hex, &cnt, &StoreType::Packs)?.unwrap();
+            let mut obj = rsdos::object::pull_from_packs(&hash_hex, &cnt)?.unwrap();
             let mut buffer = vec![];
             std::io::copy(&mut obj.reader, &mut buffer)?;
             let content = String::from_utf8(buffer)?;
@@ -234,7 +234,7 @@ mod tests {
         //
         for (hash_hex, expected_content) in orig_objs {
             // find content from packs file
-            let mut obj = rsdos::Object::from_hash(&hash_hex, &cnt, &StoreType::Packs)?.unwrap();
+            let mut obj = rsdos::object::pull_from_packs(&hash_hex, &cnt)?.unwrap();
             let mut buffer = vec![];
             std::io::copy(&mut obj.reader, &mut buffer)?;
             let content = String::from_utf8(buffer)?;

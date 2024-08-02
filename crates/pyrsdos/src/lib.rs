@@ -83,7 +83,7 @@ impl PyContainer {
             .iter()
             .map(|hashkey| {
                 let content =
-                    match Object::from_hash(hashkey, &self.inner, &StoreType::Loose).unwrap() {
+                    match rsdos::object::pull_from_loose(hashkey, &self.inner).unwrap() {
                         Some(mut obj) => {
                             buf.clear();
                             let mut cursor = Cursor::new(&mut buf);
@@ -147,7 +147,7 @@ struct Stream;
 
 impl Stream {
     fn write_from_loose(cnt: &Container, hash: &str, py_filelike: Py<PyAny>) -> PyResult<()> {
-        if let Some(mut obj) = rsdos::Object::from_hash(hash, cnt, &StoreType::Loose)? {
+        if let Some(mut obj) = rsdos::object::pull_from_loose(hash, cnt)? {
             match PyFileLikeObject::with_requirements(py_filelike, true, false, false, false) {
                 Ok(mut fl) => {
                     // copy from reader to writer
@@ -163,7 +163,7 @@ impl Stream {
     }
 
     fn write_from_packs(cnt: &Container, hash: &str, py_filelike: Py<PyAny>) -> PyResult<()> {
-        if let Some(mut obj) = rsdos::Object::from_hash(hash, cnt, &StoreType::Packs)? {
+        if let Some(mut obj) = rsdos::object::pull_from_packs(hash, cnt)? {
             match PyFileLikeObject::with_requirements(py_filelike, true, false, false, false) {
                 Ok(mut fl) => {
                     // copy from reader to writer

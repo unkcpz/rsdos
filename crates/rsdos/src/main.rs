@@ -134,7 +134,7 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::CatFile { object_hash } => {
             let cnt = rsdos::Container::new(&cnt_path);
-            let obj = rsdos::Object::from_hash(&object_hash, &cnt, &StoreType::Loose)?;
+            let obj = rsdos::object::pull_from_loose(&object_hash, &cnt)?;
             match obj {
                 Some(mut obj) => {
                     let n = std::io::copy(&mut obj.reader, &mut std::io::stdout())

@@ -13,58 +13,52 @@ pub struct Object<R> {
     pub hashkey: String,
 }
 
-impl Object<()> {
-    pub fn from_hash(
-        obj_hash: &str,
-        cnt: &Container,
-        store_type: &StoreType,
-    ) -> anyhow::Result<Option<Object<impl BufRead>>> {
-        let obj = match store_type {
-            StoreType::Loose => {
-                let obj = cnt
-                    .loose()?
-                    .join(format!("{}/{}", &obj_hash[..2], &obj_hash[2..]));
-                if obj.exists() {
-                    let f = fs::File::open(&obj)
-                        .with_context(|| format!("cannot open {}", obj.display()))?;
-                    let expected_size = f.metadata()?.len();
-                    let z = BufReader::new(f);
+pub fn pull_from_loose(
+    obj_hash: &str,
+    cnt: &Container,
+) -> anyhow::Result<Option<Object<impl BufRead>>> {
+    let obj = cnt
+        .loose()?
+        .join(format!("{}/{}", &obj_hash[..2], &obj_hash[2..]));
+    if obj.exists() {
+        let f = fs::File::open(&obj).with_context(|| format!("cannot open {}", obj.display()))?;
+        let expected_size = f.metadata()?.len();
+        let z = BufReader::new(f);
 
-                    let obj = Object {
-                        reader: z.take(expected_size),
-                        expected_size: expected_size as usize,
-                        hashkey: obj_hash.to_string(),
-                    };
-                    Some(obj)
-                } else {
-                    None
-                }
-            }
-            StoreType::Packs => {
-                let conn = Connection::open(cnt.packs_db()?)?;
-                if let Some(pack_entry) = db::select(&conn, obj_hash)? {
-                    let pack_id = pack_entry.pack_id;
-                    let expected_size = pack_entry.size;
-                    let mut pack = fs::OpenOptions::new()
-                        .read(true)
-                        .open(cnt.packs()?.join(format!("{pack_id}")))?;
-                    pack.seek(SeekFrom::Start(pack_entry.offset))?;
-
-                    // open a buffer as reader
-                    let z = BufReader::new(pack);
-                    let obj = Object {
-                        reader: z.take(expected_size),
-                        expected_size: expected_size as usize,
-                        hashkey: obj_hash.to_string(),
-                    };
-                    Some(obj)
-                } else {
-                    None
-                }
-            }
+        let obj = Object {
+            reader: z.take(expected_size),
+            expected_size: expected_size as usize,
+            hashkey: obj_hash.to_string(),
         };
+        Ok(Some(obj))
+    } else {
+        Ok(None)
+    }
+}
 
-        Ok(obj)
+pub fn pull_from_packs(
+    obj_hash: &str,
+    cnt: &Container,
+) -> anyhow::Result<Option<Object<impl BufRead>>> {
+    let conn = Connection::open(cnt.packs_db()?)?;
+    if let Some(pack_entry) = db::select(&conn, obj_hash)? {
+        let pack_id = pack_entry.pack_id;
+        let expected_size = pack_entry.size;
+        let mut pack = fs::OpenOptions::new()
+            .read(true)
+            .open(cnt.packs()?.join(format!("{pack_id}")))?;
+        pack.seek(SeekFrom::Start(pack_entry.offset))?;
+
+        // open a buffer as reader
+        let z = BufReader::new(pack);
+        let obj = Object {
+            reader: z.take(expected_size),
+            expected_size: expected_size as usize,
+            hashkey: obj_hash.to_string(),
+        };
+        Ok(Some(obj))
+    } else {
+        Ok(None)
     }
 }
 
@@ -110,7 +104,7 @@ pub fn stream_from_packs_multi(
             let obj = Object {
                 reader: Cursor::new(buf),
                 expected_size: buf_size,
-                hashkey, 
+                hashkey,
             };
             objs.push(obj);
         }
