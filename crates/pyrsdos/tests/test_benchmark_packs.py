@@ -2,9 +2,10 @@ import pytest
 import hashlib
 import random
 
-def test_packs_read_rs_(rs_container):
+@pytest.mark.benchmark(group="read_single")
+def test_packs_read_single_rs(rs_container, benchmark):
     """Add 10'000 objects to the container in loose form, and benchmark write and read speed."""
-    num_files = 100
+    num_files = 10000
     data_content = [str(i).encode("ascii") for i in range(num_files)]
     expected_hashkeys = [
         hashlib.sha256(content).hexdigest() for content in data_content
@@ -14,14 +15,31 @@ def test_packs_read_rs_(rs_container):
     hashkeys = rs_container.add_objects_to_pack(data_content, compress=False)
     random.shuffle(hashkeys)
     # Note that here however the OS will be using the disk caches
-    results = rs_container.get_objects_content(hashkeys)
+    result = benchmark(rs_container.get_object_content, hashkeys[0])
 
-    assert results == expected_results_dict
+    assert result == expected_results_dict[hashkeys[0]]
+
+@pytest.mark.benchmark(group="read_single")
+def test_packs_read_single_py(py_container, benchmark):
+    """Add 10'000 objects to the container in loose form, and benchmark write and read speed."""
+    num_files = 10000
+    data_content = [str(i).encode("ascii") for i in range(num_files)]
+    expected_hashkeys = [
+        hashlib.sha256(content).hexdigest() for content in data_content
+    ]
+    expected_results_dict = dict(zip(expected_hashkeys, data_content))
+
+    hashkeys = py_container.add_objects_to_pack(data_content, compress=False)
+    random.shuffle(hashkeys)
+    # Note that here however the OS will be using the disk caches
+    result = benchmark(py_container.get_object_content, hashkeys[0])
+
+    assert result == expected_results_dict[hashkeys[0]]
 
 @pytest.mark.benchmark(group="read_10000")
 def test_packs_read_rs(benchmark, rs_container):
     """Add 10'000 objects to the container in loose form, and benchmark write and read speed."""
-    num_files = 1000
+    num_files = 10000
     data_content = [str(i).encode("ascii") for i in range(num_files)]
     expected_hashkeys = [
         hashlib.sha256(content).hexdigest() for content in data_content
@@ -38,7 +56,7 @@ def test_packs_read_rs(benchmark, rs_container):
 @pytest.mark.benchmark(group="read_10000")
 def test_packs_read_py(benchmark, py_container):
     """Add 10'000 objects to the container in loose form, and benchmark write and read speed."""
-    num_files = 1000
+    num_files = 10000
     data_content = [str(i).encode("ascii") for i in range(num_files)]
     expected_hashkeys = [
         hashlib.sha256(content).hexdigest() for content in data_content

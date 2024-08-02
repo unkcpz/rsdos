@@ -1,20 +1,21 @@
 use std::{
     collections::HashMap,
-    fs::{self, File},
-    io::{self, BufReader, Cursor, Seek, Take},
+    fs::{self},
+    io::{self, Cursor, Seek},
     path::PathBuf,
 };
 
-use pyo3::{exceptions::PyValueError, prelude::*, types::PyBytes};
+use pyo3::{exceptions::PyValueError, prelude::*};
 use pyo3_file::PyFileLikeObject;
 use rsdos::{
-    add_file::{
-        stream_to_loose, stream_to_packs, HashWriter, StoreType, _stream_to_packs, copy_by_chunk,
-    }, object::stream_from_packs_multi, status, utils::Dir, Config, Container, Object
+    add_file::{copy_by_chunk, stream_to_loose, stream_to_packs, HashWriter, StoreType},
+    object::stream_from_packs_multi,
+    status,
+    utils::Dir,
+    Config, Container, Object,
 };
 use rusqlite::{params, Connection};
 use sha2::{Digest, Sha256};
-use std::io::Read;
 
 #[pyclass(name = "_Container")]
 struct PyContainer {
@@ -143,28 +144,13 @@ impl PyContainer {
         Ok(results)
     }
 
-    fn get_object_content(&self, hashkey: &str) -> PyResult<Vec<u8>> {
-        match Object::from_hash(hashkey, &self.inner, &StoreType::Loose)? {
-            Some(mut obj) => {
-                let mut buf = Vec::new();
-                let mut cursor = Cursor::new(&mut buf);
-
-                std::io::copy(&mut obj.reader, &mut cursor)?;
-                Ok(buf)
-            }
-            _ => Err(PyValueError::new_err(format!(
-                "hash key {hashkey} is not found"
-            ))),
-        }
-    }
-
-    // TODO: a bit faster if I do raw rust wrapper but not enough: 8ms -> 7ms
-    fn get_objects_content(&self, hashkeys: Vec<String>) -> PyResult<HashMap<String, Vec<u8>>> {
+    // This is 2 times fast than write to writer from py world since there is no overhead to cross
+    // boundary for every py object.
+    fn get_loose_objects_content(&self, hashkeys: Vec<String>) -> HashMap<String, Option<Vec<u8>>> {
         let mut buf = Vec::new();
-        let d = hashkeys
+        hashkeys
             .iter()
             .map(|hashkey| {
-                // let content = self.get_object_content(k).unwrap();
                 let content =
                     match Object::from_hash(hashkey, &self.inner, &StoreType::Loose).unwrap() {
                         Some(mut obj) => {
@@ -172,66 +158,44 @@ impl PyContainer {
                             let mut cursor = Cursor::new(&mut buf);
 
                             std::io::copy(&mut obj.reader, &mut cursor).unwrap();
-                            buf.clone()
+                            Some(buf.clone())
                         }
-                        _ => todo!(),
+                        _ => None,
                     };
-                (hashkey.to_string(), content)
+                (hashkey.to_owned(), content)
+            })
+            .collect()
+    }
+
+    fn write_stream_from_loose(&self, hash: &str, py_filelike: Py<PyAny>) -> PyResult<()> {
+        Stream::write_from_loose(&self.inner, hash, py_filelike)
+    }
+
+    fn write_stream_from_packs(&self, hash: &str, py_filelike: Py<PyAny>) -> PyResult<()> {
+        Stream::write_from_packs(&self.inner, hash, py_filelike)
+    }
+
+    // XXX: Vec<u8> -> ByteStr ?
+    fn stream_from_packs_multi(&self, hashkeys: Vec<String>) -> PyResult<HashMap<String, Vec<u8>>> {
+        let mut objs = stream_from_packs_multi(&self.inner, &hashkeys)?;
+        let mut buf = Vec::new();
+        let res = objs
+            .iter_mut()
+            .map(|obj| {
+                let hashkey = &obj.hashkey;
+                buf.clear();
+                let mut cursor = Cursor::new(&mut buf);
+                std::io::copy(&mut obj.reader, &mut cursor).unwrap();
+                (hashkey.to_owned(), buf.clone())
+
+                // NOTE: a bit overhead to copy from buf to buf, in principle can directly take from the memory
+                // let cursor = &mut obj.reader;
+                // let buf = cursor.get_mut();
+                // (hashkey.to_owned(), std::mem::take(buf))
             })
             .collect();
 
-        Ok(d)
-    }
-
-    // TODO: try here return an iterator, use it in get_objects_content, see if it is getting fast
-
-    // XXX: return an Object struct???
-    fn stream_from_loose(
-        &self,
-        py: Python,
-        obj_hash: &str,
-    ) -> PyResult<Option<Py<PyLooseStreamObject>>> {
-        let obj_path = self
-            .inner
-            .loose()?
-            .join(format!("{}/{}", &obj_hash[..2], &obj_hash[2..]));
-        if obj_path.exists() {
-            let file_like = PyLooseStreamObject::new(obj_path.to_str().unwrap().to_string())
-                .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))?;
-
-            Ok(Some(Py::new(py, file_like)?))
-        } else {
-            Ok(None)
-        }
-    }
-
-    // XXX: unified parameters name to hashkeys to align with legacy dos
-    fn stream_from_packs(
-        &self,
-        py: Python,
-        obj_hash: &str,
-    ) -> PyResult<Option<Py<PyPacksStreamObject>>> {
-        let obj = rsdos::Object::from_hash(obj_hash, &self.inner, &StoreType::Packs)?;
-        if let Some(obj) = obj {
-            let file_like = PyPacksStreamObject::new(obj)?;
-            Ok(Some(Py::new(py, file_like)?))
-        } else {
-            Ok(None)
-        }
-    }
-
-    fn stream_from_packs_multi(
-        &self,
-        py: Python,
-        hashkeys: Vec<String>,
-    ) -> PyResult<Vec<Py<PyPacksStreamObject>>> {
-        let objs = stream_from_packs_multi(&self.inner, hashkeys)?;
-        let mut streams = vec![];
-        for obj in objs {
-            let file_like = PyPacksStreamObject::new(obj)?;
-            streams.push(Py::new(py, file_like)?);
-        }
-        Ok(streams)
+        Ok(res)
     }
 
     // XXX: combine with get_n_objs and return dicts
@@ -246,58 +210,41 @@ impl PyContainer {
     }
 }
 
+#[derive(Debug)]
 #[pyclass]
-struct PyPacksStreamObject {
-    inner: Object<Take<BufReader<File>>>,
-}
+struct Stream;
 
-#[pymethods]
-impl PyPacksStreamObject {
-    fn read(&mut self, py: Python) -> PyResult<Py<PyBytes>> {
-        let mut buf = vec![0; self.inner.expected_size];
-        let n = self.inner.reader.read(&mut buf).map_err(|e| {
-            pyo3::exceptions::PyIOError::new_err(format!("Failed to read file: {}", e))
-        })?;
-        Ok(PyBytes::new_bound(py, &buf[..n]).into())
+impl Stream {
+    fn write_from_loose(cnt: &Container, hash: &str, py_filelike: Py<PyAny>) -> PyResult<()> {
+        if let Some(mut obj) = rsdos::Object::from_hash(hash, cnt, &StoreType::Loose)? {
+            match PyFileLikeObject::with_requirements(py_filelike, true, false, false, false) {
+                Ok(mut fl) => {
+                    // copy from reader to writer
+                    std::io::copy(&mut obj.reader, &mut fl)?;
+                    fl.rewind().unwrap();
+                    Ok(())
+                }
+                Err(e) => Err(e),
+            }
+        } else {
+            Err(PyErr::new::<PyValueError, _>(format!("{hash} not found")))
+        }
     }
 
-    #[getter]
-    fn hashkey(&self) -> String {
-        self.inner.hashkey.clone()
-    }
-}
-
-impl PyPacksStreamObject {
-    fn new(obj: Object<Take<BufReader<File>>>) -> PyResult<Self> {
-        Ok(PyPacksStreamObject { inner: obj })
-    }
-}
-
-// NOTE: this is re-implement of rsdos::Object without generic (which is for any Reader)
-// since pyO3 need non-opaque to wrapped to python class.
-#[pyclass]
-struct PyLooseStreamObject {
-    inner: fs::File,
-    size: u64,
-}
-
-#[pymethods]
-impl PyLooseStreamObject {
-    #[new]
-    fn new(filename: String) -> PyResult<Self> {
-        let file = fs::File::open(filename).map_err(|e| {
-            pyo3::exceptions::PyIOError::new_err(format!("Failed to open file: {}", e))
-        })?;
-        let size = file.metadata()?.len();
-        Ok(PyLooseStreamObject { inner: file, size })
-    }
-
-    fn read(&mut self, py: Python) -> PyResult<Py<PyBytes>> {
-        let mut buf = vec![0; self.size as usize];
-        let n = self.inner.read(&mut buf).map_err(|e| {
-            pyo3::exceptions::PyIOError::new_err(format!("Failed to read file: {}", e))
-        })?;
-        Ok(PyBytes::new_bound(py, &buf[..n]).into())
+    fn write_from_packs(cnt: &Container, hash: &str, py_filelike: Py<PyAny>) -> PyResult<()> {
+        if let Some(mut obj) = rsdos::Object::from_hash(hash, cnt, &StoreType::Packs)? {
+            match PyFileLikeObject::with_requirements(py_filelike, true, false, false, false) {
+                Ok(mut fl) => {
+                    // copy from reader to writer
+                    std::io::copy(&mut obj.reader, &mut fl)?;
+                    fl.rewind().unwrap();
+                    Ok(())
+                }
+                Err(e) => Err(e),
+            }
+        } else {
+            Err(PyErr::new::<PyValueError, _>(format!("{hash} not found")))
+        }
     }
 }
 

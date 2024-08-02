@@ -1,5 +1,5 @@
-use std::fs::File;
-use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Take};
+use std::io::{BufRead, BufReader, Cursor, Read, Seek, SeekFrom};
+use std::os::unix::fs::FileExt;
 use std::{fs, usize};
 
 use crate::add_file::StoreType;
@@ -18,7 +18,7 @@ impl Object<()> {
         obj_hash: &str,
         cnt: &Container,
         store_type: &StoreType,
-    ) -> anyhow::Result<Option<Object<Take<BufReader<File>>>>> {
+    ) -> anyhow::Result<Option<Object<impl BufRead>>> {
         let obj = match store_type {
             StoreType::Loose => {
                 let obj = cnt
@@ -70,8 +70,8 @@ impl Object<()> {
 
 pub fn stream_from_packs_multi(
     cnt: &Container,
-    hashkeys: Vec<String>,
-) -> anyhow::Result<Vec<Object<Take<BufReader<File>>>>> {
+    hashkeys: &[String],
+) -> anyhow::Result<Vec<Object<impl Read>>> {
     // TODO: make chunk size configuable
     let MAX_CHUNK_ITERATE_LENGTH = 9500;
     let IN_SQL_MAX_LENGTH = 950;
@@ -93,23 +93,23 @@ pub fn stream_from_packs_multi(
             Ok((hashkey, compressed, size, offset, length, pack_id))
         })?;
 
-        // let mut rows: Vec<_> = rows.into_iter().map(|row| row.unwrap()).collect();
-        // rows.sort_by_key(|k| k.3);
-        //
-        for row in rows {
-            let (hashkey, _, size, offset, _, pack_id) = row?;
-            // XXX: overhead may come from too many file openning, which only need once for a
-            // packid.
-            let mut pack = fs::OpenOptions::new()
-                .read(true)
-                .open(cnt.packs()?.join(format!("{pack_id}")))?;
-            pack.seek(SeekFrom::Start(offset))?;
+        // collect and sort by offset
+        let mut rows: Vec<_> = rows.into_iter().map(|row| row.unwrap()).collect();
+        rows.sort_by_key(|k| k.3);
 
-            // open a buffer as reader
-            let z = BufReader::new(pack);
+        let pack = fs::OpenOptions::new()
+            .read(true)
+            .open(cnt.packs()?.join("0"))?;
+
+        for row in rows {
+            let (hashkey, _, _, offset, length, _pack_id) = row;
+            let buf_size = usize::try_from(length)?;
+
+            let mut buf = vec![0u8; buf_size];
+            pack.read_exact_at(&mut buf, offset)?;
             let obj = Object {
-                reader: z.take(size),
-                expected_size: size as usize,
+                reader: Cursor::new(buf),
+                expected_size: buf_size,
                 hashkey, 
             };
             objs.push(obj);

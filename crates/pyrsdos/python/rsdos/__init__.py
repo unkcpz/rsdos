@@ -10,6 +10,7 @@ from .rsdos import _Container
 #     "ZlibLikeBaseStreamDecompresser",
 #     "ZeroStream",
 # ]
+StreamBytesType = t.BinaryIO
 StreamReadBytesType = t.BinaryIO
 StreamSeekBytesType = t.BinaryIO
 
@@ -24,55 +25,83 @@ class Container:
     def get_folder(self) -> Path:
         return self.cnt.get_folder()
 
-    def get_object_stream_loose(self, hashkey: str) -> StreamReadBytesType | None:
-        obj = self.cnt.stream_from_loose(hashkey)
-
-        return obj
-        # if obj is not None:
-        #     return obj
-        # else:
-        #     return self.cnt.stream_from_packs(hashkey)
+    def _fetch_from_loose(self, hashkey: str, stream: StreamBytesType):
+        self.cnt.write_stream_from_loose(hashkey, stream)
 
     def iter_objects_stream_loose(
         self, hashkeys: t.List[str], skip_if_missing: bool = True
     ) -> t.Iterator[t.Tuple[str, t.Optional[StreamReadBytesType]]]:
         for hashkey in hashkeys:
-            stream = self.get_object_stream_loose(hashkey)
-            if stream is None and skip_if_missing:
-                continue
+            stream = io.BytesIO()
+            try:
+                self._fetch_from_loose(hashkey, stream)
+                yield (hashkey, stream)
+            except ValueError as exc:
+                if skip_if_missing:
+                    yield (hashkey, None)
+                else:
+                    raise exc from None
 
-            yield (hashkey, stream)
+    def _fetch_from_packs(self, hashkey: str, stream: StreamBytesType):
+        self.cnt.write_stream_from_packs(hashkey, stream)
+
+    def iter_objects_stream_packs(
+        self, hashkeys: t.List[str], skip_if_missing: bool = True
+    ) -> t.Iterator[t.Tuple[str, t.Optional[StreamReadBytesType]]]:
+        for hashkey in hashkeys:
+            stream = io.BytesIO()
+            try:
+                self._fetch_from_packs(hashkey, stream)
+                yield (hashkey, stream)
+            except ValueError as exc:
+                if skip_if_missing:
+                    yield (hashkey, None)
+                else:
+                    raise exc from None
+
 
     def get_object_content(self, hashkey: str) -> bytes | None:
-        obj = self.get_object_stream_loose(hashkey)
-        if obj is not None:
-            return obj.read()
+        stream = io.BytesIO()
+        try:
+            # try fetch from loose
+            self._fetch_from_loose(hashkey, stream)
+        except ValueError:
+            try:
+                # not found in loose, try fetch from packs
+                self._fetch_from_packs(hashkey, stream)
+            except ValueError:
+                return None
+            else:
+                return stream.read()
         else:
-            return obj
+            return stream.read()
 
-    # XXX: althrough it is faster  (~2x faster) than legacy dos (w.r.t to < py3.11), but this is way more slower than 
-    # the speed gained from `get_object_content` which is ~x30 faster.
-    # legacy dos directly deal with the stream. If change it to using `get_object_content` it suffers from
-    # the same overhead. Need to clear about where the overhead comes from.
     def get_objects_content(        
         self, hashkeys: t.List[str], skip_if_missing: bool = True
     ) -> t.Dict[str, t.Optional[bytes]]:
-        d = {}
-        # loose
-        # for k, v in self.iter_objects_stream_loose(hashkeys, skip_if_missing):
-        #     d[k] = v.read() if v is not None else None
+        d = self.get_loose_objects_content_raw_rs(hashkeys, skip_if_missing)
 
-        # packs
-        for obj in self.cnt.stream_from_packs_multi(hashkeys):
-            k = obj.hashkey
-            d[k] = obj.read()
+        # what not found in loose, try to find in packs
+        # packs XXX: large speed overhead even no object in packs
+        for k, v in self.cnt.stream_from_packs_multi(hashkeys).items():
+            d[k] = bytes(v)
 
         return d
         
-    def get_objects_content_raw_rs(
+    def get_loose_objects_content_raw_rs(
         self, hashkeys: t.List[str], skip_if_missing: bool = True
     ) -> t.Dict[str, t.Optional[bytes]]:
-        return {k: bytes(v) for k, v in self.cnt.get_objects_content(hashkeys).items()}
+        d = {}
+        for k, v in self.cnt.get_loose_objects_content(hashkeys).items():
+            if v is not None:
+                d[k] = bytes(v)
+            else:
+                if skip_if_missing:
+                    continue
+                else:
+                    d[k] = None
+
+        return d
 
     def add_object(self, content: bytes) -> str:
         stream = io.BytesIO(content)
