@@ -125,10 +125,7 @@ class Container:
         do_fsync: bool = True,
         do_commit: bool = True,
     ) -> t.List[str]:
-        stream_list: t.List[StreamSeekBytesType] = [
-            io.BytesIO(content) for content in content_list
-        ]
-        hkey_lst = self.cnt.stream_to_packs_multi(stream_list)
+        hkey_lst = self.cnt.stream_to_packs_multi(content_list)
         return hkey_lst
             
 
