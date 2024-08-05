@@ -618,6 +618,7 @@ dependencies = [
  "hex-literal",
  "human_bytes",
  "indicatif",
+ "once_cell",
  "rusqlite",
  "serde",
  "serde_json",

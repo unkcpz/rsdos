@@ -16,10 +16,15 @@ pub use crate::add_file::add_file;
 pub mod status;
 pub use crate::status::stat;
 
-#[path ="libs/io.rs"]
+#[path = "libs/io.rs"]
 pub mod io;
 pub use crate::io::Object;
 
-#[path ="libs/container.rs"]
+#[path = "libs/container.rs"]
 pub mod container;
 pub use crate::container::Container;
+
+#[path = "libs/test_utils.rs"]
+#[cfg(test)]
+pub mod test_utils;
+

@@ -186,34 +186,37 @@ impl Container {
 #[cfg(test)]
 mod tests {
     use tempfile::tempdir;
-    use crate::config;
-    use super::*;
 
-    const PACK_SIZE_TARGET: u64 = 4 * 1024 * 1024;
+    use crate::test_utils::gen_tmp_container;
+
+    use super::*;
 
     #[test]
     fn default_init() {
-        let config = config::Config::new(PACK_SIZE_TARGET);
-        let tmp = tempdir().unwrap();
-        let cnt = Container::new(&tmp);
-        assert!(Dir(&cnt.path).is_empty().unwrap());
-
-        cnt.initialize(&config).unwrap();
-        let cnt = cnt.validate().unwrap();
+        let cnt = gen_tmp_container().lock().unwrap();
 
         assert!(!Dir(&cnt.path).is_empty().unwrap());
     }
 
     #[test]
+    fn init_in_inited_folder() {
+        let cnt = gen_tmp_container().lock().unwrap();
+
+        let err = cnt.initialize(&Config::new(4 * 1024 * 1024)).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("already initialized"), "got err: {err}");
+    }
+
+    #[test]
     fn init_in_non_empty_folder() {
-        let config = config::Config::new(PACK_SIZE_TARGET);
         let tmp = tempdir().unwrap();
         let cnt = Container::new(&tmp);
         let _ = fs::File::create(cnt.path.join("unexpected"));
 
-        let err = cnt.initialize(&config).unwrap_err();
+        let err = cnt.initialize(&Config::new(4 * 1024 * 1024)).unwrap_err();
         assert!(err
             .to_string()
-            .starts_with("Refusing to initialize in non-empty directory"));
+            .contains("Refusing to initialize in non-empty directory"), "got err: {err}");
     }
 }
