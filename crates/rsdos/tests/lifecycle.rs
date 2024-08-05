@@ -10,7 +10,7 @@ mod tests {
     const PACK_SIZE_TARGET: u64 = 4 * 1024 * 1024;
 
     #[test]
-    fn lifecycle0() {
+    fn lifecycle_add_ten_diff_objs_to_loose() {
         // Default lifecycle:
         // Create 10 different loose objects
         let cnt = tempdir().unwrap();
@@ -39,10 +39,10 @@ mod tests {
     }
 
     #[test]
-    fn lifecycle1() {
+    fn lifecycle_add_ten_same_objs_to_loose() {
         // Default lifecycle:
         // Create 10 same loose objects
-        // regression checke: get the obj content by hash and compute hash is the same
+        // regression check: get the obj content by hash and compute hash is the same
         let cnt = tempdir().unwrap();
         let cnt_path = cnt.into_path();
 
@@ -71,10 +71,7 @@ mod tests {
     }
 
     #[test]
-    fn lifecycle2() {
-        // Default lifecycle:
-        // Create a loose object
-        // regression checke: save, get and check the obj content
+    fn lifecycle_add_one_to_loose_and_read() {
         let cnt = tempdir().unwrap();
         let cnt_path = cnt.into_path();
 
@@ -94,8 +91,7 @@ mod tests {
 
         // get obj by hash_hex
         let cnt = rsdos::Container::new(&cnt_path);
-        let obj = rsdos::object::pull_from_loose(&hash_hex, &cnt)
-            .expect("get object from hash");
+        let obj = rsdos::io::pull_from_loose(&hash_hex, &cnt).expect("get object from hash");
 
         let mut content = String::new();
         obj.unwrap().reader.read_to_string(&mut content).unwrap();
@@ -104,10 +100,7 @@ mod tests {
     }
 
     #[test]
-    fn lifecycle3() -> anyhow::Result<()> {
-        // Default lifecycle:
-        // Create a 0 pack object
-        // regression checke: save, get and check the obj content
+    fn lifecycle_add_ten_diff_objs_to_packs() -> anyhow::Result<()> {
         let cnt = tempdir().unwrap();
         let cnt_path = cnt.into_path();
 
@@ -134,7 +127,7 @@ mod tests {
         //
         for (hash_hex, expected_content) in orig_objs {
             // find content from packs file
-            let mut obj = rsdos::object::pull_from_packs(&hash_hex, &cnt)?.unwrap();
+            let mut obj = rsdos::io::pull_from_packs(&hash_hex, &cnt)?.unwrap();
             let mut buffer = vec![];
             std::io::copy(&mut obj.reader, &mut buffer)?;
             let content = String::from_utf8(buffer)?;
@@ -150,11 +143,55 @@ mod tests {
     }
 
     #[test]
-    fn lifecycle4() -> anyhow::Result<()> {
+    fn lifecycle_add_ten_same_objs_to_packs() -> anyhow::Result<()> {
+        // insert 10 identical object to packs
+        let cnt = tempdir().unwrap();
+        let cnt_path = cnt.into_path();
+
+        let config = rsdos::Config::new(4);
+
+        let cnt = rsdos::Container::new(cnt_path);
+        cnt.initialize(&config)
+            .expect("fail to initialize container");
+
+        let orig_objs: HashMap<String, String> = (0..10)
+            .map(|_| {
+                let content = "test".to_string();
+                let mut tf = NamedTempFile::new().unwrap();
+                write!(tf, "{content}").unwrap();
+
+                let fp = tf.into_temp_path();
+                let (hash_hex, _, _) = rsdos::add_file(&fp.to_path_buf(), &cnt, &StoreType::Packs)
+                    .expect("add file to pack failed");
+
+                (hash_hex, content)
+            })
+            .collect();
+
+        //
+        for (hash_hex, expected_content) in orig_objs {
+            // find content from packs file
+            let mut obj = rsdos::io::pull_from_packs(&hash_hex, &cnt)?.unwrap();
+            let mut buffer = vec![];
+            std::io::copy(&mut obj.reader, &mut buffer)?;
+            let content = String::from_utf8(buffer)?;
+
+            assert_eq!(content, expected_content);
+        }
+
+        // status audit
+        let info = rsdos::stat(&cnt).expect("fail to audit container stat");
+        assert_eq!(info.count.packs, 1);
+
+        Ok(())
+    }
+
+    /// Have a large pack/0 file that exceed single file limit
+    /// Add a new file to pack will add to pack/1
+    /// regression checke: save, get and check the obj content
+    #[test]
+    fn lifecycle_add_to_packs_beyond_one_pack() -> anyhow::Result<()> {
         // Default lifecycle:
-        // Have a large pack/0 file that exceed single file limit
-        // Add a new file to pack will add to pack/1
-        // regression checke: save, get and check the obj content
         let cnt = tempdir().unwrap();
         let cnt_path = cnt.into_path();
 
@@ -189,7 +226,7 @@ mod tests {
         // let out = fs::read_to_string(cnt.packs()?.join("0"))?;
         //
         for (hash_hex, expected_content) in orig_objs {
-            let mut obj = rsdos::object::pull_from_packs(&hash_hex, &cnt)?.unwrap();
+            let mut obj = rsdos::io::pull_from_packs(&hash_hex, &cnt)?.unwrap();
             let mut buffer = vec![];
             std::io::copy(&mut obj.reader, &mut buffer)?;
             let content = String::from_utf8(buffer)?;
@@ -200,51 +237,6 @@ mod tests {
         // status audit
         let info = rsdos::stat(&cnt).expect("fail to audit container stat");
         assert_eq!(info.count.packs, 11);
-
-
-        Ok(())
-    }
-
-    #[test]
-    fn lifecycle5() -> anyhow::Result<()> {
-        // insert 10 identical object to packs
-        let cnt = tempdir().unwrap();
-        let cnt_path = cnt.into_path();
-
-        let config = rsdos::Config::new(4);
-
-        let cnt = rsdos::Container::new(cnt_path);
-        cnt.initialize(&config)
-            .expect("fail to initialize container");
-
-        let orig_objs: HashMap<String, String> = (0..10)
-            .map(|_| {
-                let content = "test".to_string();
-                let mut tf = NamedTempFile::new().unwrap();
-                write!(tf, "{content}").unwrap();
-
-                let fp = tf.into_temp_path();
-                let (hash_hex, _, _) = rsdos::add_file(&fp.to_path_buf(), &cnt, &StoreType::Packs)
-                    .expect("add file to pack failed");
-
-                (hash_hex, content)
-            })
-            .collect();
-
-        //
-        for (hash_hex, expected_content) in orig_objs {
-            // find content from packs file
-            let mut obj = rsdos::object::pull_from_packs(&hash_hex, &cnt)?.unwrap();
-            let mut buffer = vec![];
-            std::io::copy(&mut obj.reader, &mut buffer)?;
-            let content = String::from_utf8(buffer)?;
-
-            assert_eq!(content, expected_content);
-        }
-
-        // status audit
-        let info = rsdos::stat(&cnt).expect("fail to audit container stat");
-        assert_eq!(info.count.packs, 1);
 
         Ok(())
     }

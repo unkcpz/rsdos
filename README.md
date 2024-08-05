@@ -16,7 +16,7 @@
 - [x] Pack read
 - [x] Solve HashWriter overhead by using reference instead of mem alloc for each entry visiting
 - [x] benchmark on packs read/write
-- [ ] profiling on packs read (db?, io?)
+- [x] profiling on packs read (db?, io?) see flamegraph of `batch_packs_read.rs` and it shows db is the bottleneck.
 - [ ] packs correctly on adding new packs file
 - [ ] loose -> Pack
 - [ ] 2nd benchmark on loose->pack
@@ -29,6 +29,7 @@
 - [ ] benchmark on optimize/validate/backup ...
 - [ ] own rust benchmark on detail performance tuning.
 - [ ] hide direct write to packs and shading with same loose structure
+- [ ] Use `sled` as k-v DB backend which should have better performance than sqlite.
 - [ ] `io_uring`
 
 ## Design
