@@ -1,6 +1,7 @@
 use std::io::{self, Write};
 use std::io::{BufRead, BufReader, BufWriter, Cursor, Read, Seek, SeekFrom};
 use std::os::unix::fs::FileExt;
+use std::path::PathBuf;
 use std::{fs, usize};
 
 use crate::{db, Container};
@@ -299,19 +300,8 @@ where
     Ok((bytes_copied, hash_hex))
 }
 
-pub fn multi_push_to_packs<R>(sources: Vec<&mut R>, cnt: &Container) -> anyhow::Result<Vec<String>>
-where
-    R: Read,
-{
-    let mut results = Vec::new();
-    let packs = cnt.packs()?;
-    let mut conn = Connection::open(cnt.packs_db()?)?;
-
-    let mut current_pack_id: u64 = 0;
-    if Dir(&packs).is_empty()? {
-        let p = Dir(&packs).at_path(&format!("{current_pack_id}"));
-        fs::File::create(p).with_context(|| "create 0")?;
-    }
+fn find_current_pack_id(packs: &PathBuf, pack_size_target: u64) -> anyhow::Result<u64> {
+    let mut current_pack_id = 0;
     for entry in packs.read_dir()? {
         let path = entry?.path();
         if let Some(filename) = path.file_name() {
@@ -321,23 +311,36 @@ where
         }
     }
 
+    // check if the current pack exceed pack target size
     let p = Dir(&packs).at_path(&format!("{current_pack_id}"));
-    let mut fpack = fs::OpenOptions::new().read(true).open(p)?;
-
-    // Use new pack if size of the current pack reach or exceed the threshold limit
-    let mut offset = if fpack.metadata()?.len() >= cnt.config()?.pack_size_target {
+    let fpack = fs::OpenOptions::new().read(true).open(p)?;
+    if fpack.metadata()?.len() >= pack_size_target {
         current_pack_id += 1;
         let p = Dir(&packs).at_path(&format!("{current_pack_id}"));
         fs::OpenOptions::new().create(true).truncate(true).open(p)?;
-        0
-    } else {
-        fpack.seek(io::SeekFrom::End(0))?
-    };
+    }
 
-    let mut fpack = fs::OpenOptions::new()
+    Ok(current_pack_id)
+}
+
+pub fn multi_push_to_packs<R>(sources: Vec<&mut R>, cnt: &Container) -> anyhow::Result<Vec<String>>
+where
+    R: Read,
+{
+    let mut results = Vec::new();
+    let mut conn = Connection::open(cnt.packs_db()?)?;
+    let packs = cnt.packs()?;
+    let pack_size_target = cnt.config()?.pack_size_target;
+
+    // cwp: current working pack
+    let mut cwp_id = find_current_pack_id(&cnt.packs()?, pack_size_target)?;
+    let cwp = cnt.packs()?.join(format!("{cwp_id}"));
+    let mut cwp = fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(Dir(&packs).at_path(&format!("{current_pack_id}")))?;
+        .read(true)
+        .open(cwp)?;
+    let mut offset = cwp.seek(io::SeekFrom::End(0))?;
 
     let tx = conn.transaction()?;
     {
@@ -345,9 +348,17 @@ where
 
         let mut hasher = Sha256::new();
         for stream in sources {
-            // TODO: need to check if new pack file needed. Create one if needed based on the
-            // growth of size.
-            let mut hwriter = HashWriter::new(&mut fpack, &mut hasher);
+            // check offset (which is in the end of file when writing) is exceed limit
+            // if so create new file with +1 incremental as cwp, reset offset to 0 and continue
+            if offset >= pack_size_target {
+                cwp_id += 1;
+                offset = 0;
+                let p = Dir(&packs).at_path(&format!("{cwp_id}"));
+                fs::OpenOptions::new().create(true).truncate(true).open(p)?;
+                continue;
+            } 
+
+            let mut hwriter = HashWriter::new(&mut cwp, &mut hasher);
 
             // NOTE: Using small chunk_size can be fast in terms of benchmark.
             // Ideally should accept a hint for buffer size (loose -> packs)
@@ -364,7 +375,6 @@ where
                 bytes_copied as u64,
                 offset,
                 bytes_copied as u64,
-                current_pack_id
             ])
             .with_context(|| "insert to db")?;
             offset += bytes_copied as u64;

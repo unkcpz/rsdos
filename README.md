@@ -17,7 +17,8 @@
 - [x] Solve HashWriter overhead by using reference instead of mem alloc for each entry visiting
 - [x] benchmark on packs read/write
 - [x] profiling on packs read (db?, io?) see flamegraph of `batch_packs_read.rs` and it shows db is the bottleneck.
-- [ ] packs correctly on adding new packs file
+- [x] packs correctly on adding new packs file
+- [ ] test on pack id searching
 - [ ] loose -> Pack
 - [ ] 2nd benchmark on loose->pack
 - [ ] benchmark on loose -> Pack without compress
