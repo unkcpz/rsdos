@@ -29,7 +29,7 @@ pub fn add_file(
 
     let (bytes_streamd, hash_hex) = match target {
         StoreType::Loose => push_to_loose(&mut source, cnt)?,
-        StoreType::Packs => push_to_packs(&mut source, cnt)?,
+        StoreType::Packs => push_to_packs(file.clone(), cnt)?,
     };
 
     anyhow::ensure!(

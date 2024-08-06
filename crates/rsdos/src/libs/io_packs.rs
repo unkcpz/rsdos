@@ -6,7 +6,7 @@ use std::os::unix::fs::FileExt;
 use std::path::PathBuf;
 use std::{fs, usize};
 
-use crate::io::{copy_by_chunk, HashWriter};
+use crate::io::{copy_by_chunk, HashWriter, ReaderMaker};
 use crate::{db, Container, Object};
 
 use crate::utils::Dir;
@@ -89,10 +89,7 @@ pub fn multi_pull_from_packs(
     Ok(objs)
 }
 
-pub fn push_to_packs<R>(source: &mut R, cnt: &Container) -> anyhow::Result<(u64, String)>
-where
-    R: Read,
-{
+pub fn push_to_packs(source: impl ReaderMaker, cnt: &Container) -> anyhow::Result<(u64, String)> {
     let (bytes_copied, hash_hex) = multi_push_to_packs(vec![source], cnt)?
         .first()
         .map(|(n, hash)| (*n, hash.clone()))
@@ -134,14 +131,12 @@ fn find_current_pack_id(packs: &PathBuf, pack_size_target: u64) -> anyhow::Resul
 }
 
 // XXX: sources should be a reader iterator
-pub fn multi_push_to_packs<R>(
-    sources: Vec<&mut R>,
+pub fn multi_push_to_packs(
+    sources: Vec<impl ReaderMaker>,
     cnt: &Container,
-) -> anyhow::Result<Vec<(u64, String)>>
-where
-    R: Read,
-{
+) -> anyhow::Result<Vec<(u64, String)>> {
     let mut results = Vec::new();
+
     let mut conn = Connection::open(cnt.packs_db()?)?;
     let packs = cnt.packs()?;
     let pack_size_target = cnt.config()?.pack_size_target;
@@ -156,49 +151,53 @@ where
         .open(cwp)?;
     let mut offset = cwp.seek(io::SeekFrom::End(0))?;
 
-    let tx = conn.transaction()?;
-    {
-        let mut stmt = tx.prepare_cached("INSERT OR IGNORE INTO db_object (hashkey, compressed, size, offset, length, pack_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
+    let mut tx = conn.transaction()?;
 
-        let mut hasher = Sha256::new();
-        for stream in sources {
-            // check offset (which is in the end of file when writing) is exceed limit
-            // if so create new file with +1 incremental as cwp, reset offset to 0 and continue
-            if offset >= pack_size_target {
-                cwp_id += 1;
-                offset = 0;
-                let p = Dir(&packs).at_path(&format!("{cwp_id}"));
-                cwp = fs::OpenOptions::new()
-                    .create(true)
-                    .write(true)
-                    .truncate(true)
-                    .open(p)?;
-            }
+    let mut hasher = Sha256::new();
 
-            let mut hwriter = HashWriter::new(&mut cwp, &mut hasher);
-
-            // NOTE: Using small chunk_size can be fast in terms of benchmark.
-            // Ideally should accept a hint for buffer size (loose -> packs)
-            // 64 MiB from legacy dos  TODO: make it configurable??
-            let chunk_size = 65_536;
-            let bytes_copied = copy_by_chunk(stream, &mut hwriter, chunk_size)?;
-
-            let hash = hasher.finalize_reset();
-            let hash_hex = hex::encode(hash);
-
-            stmt.execute(params![
-                &hash_hex,
-                false,
-                bytes_copied as u64,
-                offset,
-                bytes_copied as u64,
-                cwp_id,
-            ])
-            .with_context(|| "insert to db")?;
-            offset += bytes_copied as u64;
-
-            results.push((bytes_copied as u64, hash_hex));
+    for rmaker in sources {
+        // check offset (which is in the end of file when writing) is exceed limit
+        // if so create new file with +1 incremental as cwp, reset offset to 0 and continue
+        // need also trigger transaction commit.
+        if offset >= pack_size_target {
+            tx.commit()?;
+            cwp_id += 1;
+            offset = 0;
+            let p = Dir(&packs).at_path(&format!("{cwp_id}"));
+            cwp = fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(p)?;
+            tx = conn.transaction()?;
         }
+
+        let mut hwriter = HashWriter::new(&mut cwp, &mut hasher);
+
+        // NOTE: Using small chunk_size can be fast in terms of benchmark.
+        // Ideally should accept a hint for buffer size (loose -> packs)
+        // 64 MiB from legacy dos  TODO: make it configurable??
+        let chunk_size = 65_536;
+
+        let mut stream = rmaker.make_reader();
+        let bytes_copied = copy_by_chunk(&mut stream, &mut hwriter, chunk_size)?;
+
+        let hash = hasher.finalize_reset();
+        let hash_hex = hex::encode(hash);
+
+        let mut stmt = tx.prepare_cached("INSERT OR IGNORE INTO db_object (hashkey, compressed, size, offset, length, pack_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
+        stmt.execute(params![
+            &hash_hex,
+            false,
+            bytes_copied as u64,
+            offset,
+            bytes_copied as u64,
+            cwp_id,
+        ])
+        .with_context(|| "insert to db")?;
+        offset += bytes_copied as u64;
+
+        results.push((bytes_copied as u64, hash_hex));
     }
     tx.commit()?;
 
@@ -210,10 +209,8 @@ mod tests {
     use std::{collections::HashMap, io::Write};
 
     use crate::{
-        push_to_loose, stat,
-        test_utils::{gen_tmp_container, PACK_TARGET_SIZE},
+        io::ByteString, stat, test_utils::{gen_tmp_container, PACK_TARGET_SIZE}
     };
-    use bytes::Buf;
 
     use super::*;
 
@@ -221,8 +218,8 @@ mod tests {
     fn push_to_pack_0_when_empty() {
         let cnt = gen_tmp_container(PACK_TARGET_SIZE).lock().unwrap();
 
-        let mut buf = b"test 0".reader();
-        let (_, hash) = push_to_packs(&mut buf, &cnt).unwrap();
+        let bstr: ByteString = b"test 0".to_vec();
+        let (_, hash) = push_to_packs(bstr, &cnt).unwrap();
 
         // check packs has `0` and audit has only one pack
         // check content of 0 pack is `test 0`
@@ -245,8 +242,8 @@ mod tests {
         assert_eq!(sbuf, "test 0");
 
         // subsquent add will still goes to pack 0 (since pack_target_size is 4 GiB)
-        let mut buf = b"test 1".reader();
-        let (_, hash) = push_to_packs(&mut buf, &cnt).unwrap();
+        let bstr: ByteString = b"test 1".to_vec();
+        let (_, hash) = push_to_packs(bstr, &cnt).unwrap();
 
         // check packs has `0` and audit has only one pack
         // check content of 0 pack is `test 0`
@@ -278,8 +275,8 @@ mod tests {
         fs::File::create(packs.join("0")).unwrap();
         fs::File::create(packs.join("1")).unwrap();
 
-        let mut buf = b"test 0".reader();
-        let (_, hash) = push_to_packs(&mut buf, &cnt).unwrap();
+        let bstr: ByteString = b"test 0".to_vec();
+        let (_, hash) = push_to_packs(bstr, &cnt).unwrap();
 
         // check packs has 2 packs
         // check content of 1 pack is `test 0`
@@ -320,7 +317,7 @@ mod tests {
         for i in 0..100 {
             let content = format!("test {i}");
             let buf = content.clone().into_bytes();
-            let (_, hash) = push_to_packs(&mut buf.reader(), &cnt).unwrap();
+            let (_, hash) = push_to_packs(buf, &cnt).unwrap();
             hash_content_map.insert(hash, content);
         }
 

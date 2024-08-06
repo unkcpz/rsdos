@@ -1,7 +1,9 @@
 use anyhow::Context;
+use bytes::Buf;
 use sha2::Digest;
-use std::io::{self, Read, Write};
-use std::usize;
+use std::io::{self, BufReader, Read, Write};
+use std::path::{Path, PathBuf};
+use std::{fs, usize};
 
 pub struct Object<R> {
     pub reader: R,
@@ -63,4 +65,27 @@ pub fn copy_by_chunk<R: Read, W: Write>(
 
     writer.flush().with_context(|| "flush to buff writer")?;
     Ok(total_bytes_copied)
+}
+
+pub trait ReaderMaker {
+    fn make_reader(&self) -> impl Read;
+}
+
+impl ReaderMaker for PathBuf {
+    fn make_reader(&self) -> impl Read {
+        let f = fs::OpenOptions::new()
+            .read(true)
+            .open(self)
+            .unwrap_or_else(|_| panic!("open {}", self.display()));
+        BufReader::new(f)
+    }
+}
+
+pub type ByteStr = [u8];
+pub type ByteString = Vec<u8>;
+
+impl ReaderMaker for ByteString {
+    fn make_reader(&self) -> impl Read {
+        self.reader()
+    }
 }
