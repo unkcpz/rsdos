@@ -44,7 +44,7 @@ fn main() -> anyhow::Result<()> {
             hex::encode(hashkey)
         })
         .collect();
-    let mut objs = rsdos::io::multi_pull_from_packs(&cnt, &hashkeys)?;
+    let mut objs = rsdos::io_packs::multi_pull_from_packs(&cnt, &hashkeys)?;
     let mut buf = Vec::new();
     let d: HashMap<String, String> = objs
         .iter_mut()

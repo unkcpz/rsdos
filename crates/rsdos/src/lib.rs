@@ -20,6 +20,14 @@ pub use crate::status::stat;
 pub mod io;
 pub use crate::io::Object;
 
+#[path = "libs/io_packs.rs"]
+pub mod io_packs;
+pub use crate::io_packs::{push_to_packs, pull_from_packs};
+
+#[path = "libs/io_loose.rs"]
+pub mod io_loose;
+pub use crate::io_loose::{push_to_loose, pull_from_loose};
+
 #[path = "libs/container.rs"]
 pub mod container;
 pub use crate::container::Container;

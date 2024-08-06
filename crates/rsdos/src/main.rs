@@ -133,8 +133,9 @@ fn main() -> anyhow::Result<()> {
             dbg!(no_compress, no_vacuum);
         }
         Commands::CatFile { object_hash } => {
+            // XXX: flag that support directly push to packs
             let cnt = rsdos::Container::new(&cnt_path);
-            let obj = rsdos::io::pull_from_loose(&object_hash, &cnt)?;
+            let obj = rsdos::pull_from_loose(&object_hash, &cnt)?;
             match obj {
                 Some(mut obj) => {
                     let n = std::io::copy(&mut obj.reader, &mut std::io::stdout())

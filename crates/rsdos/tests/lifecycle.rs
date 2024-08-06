@@ -67,7 +67,7 @@ fn lifecycle_add_one_to_loose_and_read() {
         .expect("unable to add file {i}");
 
     // get obj by hash_hex
-    let obj = rsdos::io::pull_from_loose(&hash_hex, &cnt).expect("get object from hash");
+    let obj = rsdos::pull_from_loose(&hash_hex, &cnt).expect("get object from hash");
 
     let mut content = String::new();
     obj.unwrap().reader.read_to_string(&mut content).unwrap();
@@ -96,7 +96,7 @@ fn lifecycle_add_ten_diff_objs_to_packs() -> anyhow::Result<()> {
     //
     for (hash_hex, expected_content) in orig_objs {
         // find content from packs file
-        let mut obj = rsdos::io::pull_from_packs(&hash_hex, &cnt)?.unwrap();
+        let mut obj = rsdos::pull_from_packs(&hash_hex, &cnt)?.unwrap();
         let mut buffer = vec![];
         std::io::copy(&mut obj.reader, &mut buffer)?;
         let content = String::from_utf8(buffer)?;
@@ -133,7 +133,7 @@ fn lifecycle_add_ten_same_objs_to_packs() -> anyhow::Result<()> {
     //
     for (hash_hex, expected_content) in orig_objs {
         // find content from packs file
-        let mut obj = rsdos::io::pull_from_packs(&hash_hex, &cnt)?.unwrap();
+        let mut obj = rsdos::pull_from_packs(&hash_hex, &cnt)?.unwrap();
         let mut buffer = vec![];
         std::io::copy(&mut obj.reader, &mut buffer)?;
         let content = String::from_utf8(buffer)?;
@@ -188,7 +188,7 @@ fn lifecycle_add_to_packs_beyond_one_pack() -> anyhow::Result<()> {
     // let out = fs::read_to_string(cnt.packs()?.join("0"))?;
     //
     for (hash_hex, expected_content) in orig_objs {
-        let mut obj = rsdos::io::pull_from_packs(&hash_hex, &cnt)?.unwrap();
+        let mut obj = rsdos::pull_from_packs(&hash_hex, &cnt)?.unwrap();
         let mut buffer = vec![];
         std::io::copy(&mut obj.reader, &mut buffer)?;
         let content = String::from_utf8(buffer)?;

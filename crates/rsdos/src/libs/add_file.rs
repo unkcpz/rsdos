@@ -1,6 +1,5 @@
 use crate::{
-    io::{push_to_loose, push_to_packs},
-    Container,
+    io_loose::push_to_loose, io_packs::push_to_packs, Container
 };
 use anyhow::Context;
 use std::{
