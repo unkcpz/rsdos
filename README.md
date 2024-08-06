@@ -1,6 +1,6 @@
 # rsdos
 
-(R)u(s)ty implementation of [`(d)isk-(o)bject(s)tore`](https://github.com/aiidateam/disk-objectstore).
+The (r)u(s)ty  [`(d)isk-(o)bject(s)tore`](https://github.com/aiidateam/disk-objectstore).
 
 ## Progress
 
@@ -18,20 +18,22 @@
 - [x] benchmark on packs read/write
 - [x] profiling on packs read (db?, io?) see flamegraph of `batch_packs_read.rs` and it shows db is the bottleneck.
 - [x] packs correctly on adding new packs file
-- [ ] test on pack id searching
-- [ ] loose -> Pack
-- [ ] 2nd benchmark on loose->pack
+- [x] loose -> Pack
 - [ ] benchmark on loose -> Pack without compress
+- [ ] Use `sled` as k-v DB backend which should have better performance than sqlite.
+- [ ] `io_uring`
 - [ ] compression
 - [ ] benchmark on pack with compress
+- [ ] docs as library
 - [ ] optimize
 - [ ] validate
 - [ ] backup
 - [ ] benchmark on optimize/validate/backup ...
 - [ ] own rust benchmark on detail performance tuning.
+- [ ] Compress on adding to loose as git. Header definition required.
 - [ ] hide direct write to packs and shading with same loose structure
-- [ ] Use `sled` as k-v DB backend which should have better performance than sqlite.
-- [ ] `io_uring`
+- [ ] generic Container interface that can host data in online storage.
+- [ ] Add mutex to the pack write, panic when other thread is writing. (or io_uring take care of async?)
 
 ## Design
 

@@ -133,6 +133,7 @@ fn find_current_pack_id(packs: &PathBuf, pack_size_target: u64) -> anyhow::Resul
     Ok(current_pack_id)
 }
 
+// XXX: sources should be a reader iterator
 pub fn multi_push_to_packs<R>(
     sources: Vec<&mut R>,
     cnt: &Container,
@@ -167,8 +168,11 @@ where
                 cwp_id += 1;
                 offset = 0;
                 let p = Dir(&packs).at_path(&format!("{cwp_id}"));
-                fs::OpenOptions::new().create(true).truncate(true).open(p)?;
-                continue;
+                cwp = fs::OpenOptions::new()
+                    .create(true)
+                    .write(true)
+                    .truncate(true)
+                    .open(p)?;
             }
 
             let mut hwriter = HashWriter::new(&mut cwp, &mut hasher);
@@ -203,16 +207,19 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
+    use std::{collections::HashMap, io::Write};
 
-    use crate::{stat, test_utils::gen_tmp_container};
+    use crate::{
+        push_to_loose, stat,
+        test_utils::{gen_tmp_container, PACK_TARGET_SIZE},
+    };
     use bytes::Buf;
 
     use super::*;
 
     #[test]
     fn push_to_pack_0_when_empty() {
-        let cnt = gen_tmp_container().lock().unwrap();
+        let cnt = gen_tmp_container(PACK_TARGET_SIZE).lock().unwrap();
 
         let mut buf = b"test 0".reader();
         let (_, hash) = push_to_packs(&mut buf, &cnt).unwrap();
@@ -263,7 +270,7 @@ mod tests {
 
     #[test]
     fn push_to_pack_1_when_1_exist() {
-        let cnt = gen_tmp_container().lock().unwrap();
+        let cnt = gen_tmp_container(PACK_TARGET_SIZE).lock().unwrap();
 
         // create fack placeholder empty pack 0 and pack 1
         // it is expected that content will be added to pack1
@@ -296,7 +303,7 @@ mod tests {
 
     #[test]
     fn push_to_pack_2_when_1_reach_limit() {
-        let cnt = gen_tmp_container().lock().unwrap();
+        let cnt = gen_tmp_container(PACK_TARGET_SIZE).lock().unwrap();
         let pack_target_size = cnt.config().unwrap().pack_size_target;
 
         // snuck limit size of bytes into pack 1 and new bytes will go to pack 2
@@ -307,21 +314,27 @@ mod tests {
         p1.write_all(&bytes_holder).unwrap();
 
         // more bytes
-        let mut buf = b"test 0".reader();
-        push_to_packs(&mut buf, &cnt).unwrap();
+        // let mut buf = b"test 0".reader();
+        // let (_, hash) = push_to_packs(&mut buf, &cnt).unwrap();
+        let mut hash_content_map: HashMap<String, String> = HashMap::new();
+        for i in 0..100 {
+            let content = format!("test {i}");
+            let buf = content.clone().into_bytes();
+            let (_, hash) = push_to_packs(&mut buf.reader(), &cnt).unwrap();
+            hash_content_map.insert(hash, content);
+        }
 
         // check packs has 2 packs
         // check content of 1 pack is `test 0`
         let info = stat(&cnt).unwrap();
         assert_eq!(info.count.packs_file, 3);
-        assert_eq!(info.count.packs, 1);
+        assert_eq!(info.count.packs, 100);
 
-        let mut sbuf = String::new();
-        let mut f0pack = fs::OpenOptions::new()
-            .read(true)
-            .open(cnt.packs().unwrap().join("2"))
-            .unwrap();
-        f0pack.read_to_string(&mut sbuf).unwrap();
-        assert_eq!(sbuf, "test 0");
+        for (hash, content) in hash_content_map {
+            let obj = pull_from_packs(&hash, &cnt).unwrap();
+            let mut sbuf = String::new();
+            obj.unwrap().reader.read_to_string(&mut sbuf).unwrap();
+            assert_eq!(sbuf, content);
+        }
     }
 }

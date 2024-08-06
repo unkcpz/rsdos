@@ -7,13 +7,13 @@ use crate::{Config, Container};
 
 pub const PACK_TARGET_SIZE: u64 = 4 * 1024 * 1024;
 
-pub fn gen_tmp_container() -> &'static Mutex<Container> {
+pub fn gen_tmp_container(pack_target_size: u64) -> &'static Mutex<Container> {
     static TMP_CONTAINER: OnceCell<Mutex<Container>> = OnceCell::new();
     TMP_CONTAINER.get_or_init(|| {
         let cnt = tempdir().unwrap();
         let cnt_path = cnt.into_path();
 
-        let config = Config::new(PACK_TARGET_SIZE);
+        let config = Config::new(pack_target_size);
 
         let cnt = Container::new(cnt_path);
         cnt.initialize(&config)
