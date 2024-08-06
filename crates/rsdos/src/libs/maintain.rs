@@ -1,10 +1,21 @@
-use std::{fs, io::{self, BufReader, Seek}, path::PathBuf};
+use std::{
+    fs,
+    io::{self, BufReader, Seek},
+    path::PathBuf,
+};
 
 use anyhow::{self, Context};
 use rusqlite::{params, Connection};
 use sha2::{Digest, Sha256};
 
-use crate::{io::{copy_by_chunk, HashWriter}, io_packs::multi_push_to_packs, pull_from_loose, status::traverse_loose, utils::Dir, Container};
+use crate::{
+    io::{copy_by_chunk, HashWriter},
+    io_packs::multi_push_to_packs,
+    pull_from_loose,
+    status::traverse_loose,
+    utils::Dir,
+    Container,
+};
 
 fn find_current_pack_id(packs: &PathBuf, pack_size_target: u64) -> anyhow::Result<u64> {
     // make sure there is a pack if not create 0
@@ -40,25 +51,11 @@ fn find_current_pack_id(packs: &PathBuf, pack_size_target: u64) -> anyhow::Resul
 
 // XXX: flag to set if do the validate, if no, use reguler writer not hash writer.
 pub fn pack_loose(cnt: &Container) -> anyhow::Result<()> {
-    let iter_loose = traverse_loose(cnt).with_context(|| "traverse loose by iter")?;
-    // let hashkeys: Vec<String> = iter_loose
-    //     .map(|p| {
-    //         let parent = p
-    //             .parent()
-    //             .unwrap_or_else(|| panic!("{} has no parent", p.display()));
-    //         let parent = parent.file_name().unwrap().to_str().unwrap();
-    //         let filename = p.file_name().unwrap().to_str().unwrap();
-    //         let hashkey = format!("{parent}{filename}");
-    //         hashkey
-    //     })
-    //     .collect();
-
-    // let mut results = Vec::new();
     let mut conn = Connection::open(cnt.packs_db()?)?;
     let packs = cnt.packs()?;
     let pack_size_target = cnt.config()?.pack_size_target;
 
-    // cwp: current working pack
+    // cwp: (c)urrent (w)orking (p)ack
     let mut cwp_id = find_current_pack_id(&cnt.packs()?, pack_size_target)?;
     let cwp = cnt.packs()?.join(format!("{cwp_id}"));
     let mut cwp = fs::OpenOptions::new()
@@ -68,56 +65,59 @@ pub fn pack_loose(cnt: &Container) -> anyhow::Result<()> {
         .open(cwp)?;
     let mut offset = cwp.seek(io::SeekFrom::End(0))?;
 
-    let tx = conn.transaction()?;
+    let mut tx = conn.transaction()?;
+    let iter_loose = traverse_loose(cnt).with_context(|| "traverse loose by iter")?;
 
-    {
-        let mut stmt = tx.prepare_cached("INSERT OR IGNORE INTO db_object (hashkey, compressed, size, offset, length, pack_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
 
-        let mut hasher = Sha256::new();
-        // for stream in sources {
-        for path in iter_loose {
-            let f = fs::OpenOptions::new().read(true).open(path)?;
-            let mut stream = BufReader::new(f);
-            // check offset (which is in the end of file when writing) is exceed limit
-            // if so create new file with +1 incremental as cwp, reset offset to 0 and continue
-            if offset >= pack_size_target {
-                cwp_id += 1;
-                offset = 0;
-                let p = Dir(&packs).at_path(&format!("{cwp_id}"));
-                cwp = fs::OpenOptions::new()
-                    .create(true)
-                    .write(true)
-                    .truncate(true)
-                    .open(p)?;
-            }
-
-            let mut hwriter = HashWriter::new(&mut cwp, &mut hasher);
-
-            // NOTE: Using small chunk_size can be fast in terms of benchmark.
-            // Ideally should accept a hint for buffer size (loose -> packs)
-            // 64 MiB from legacy dos  TODO: make it configurable??
-            let chunk_size = 65_536;
-            let bytes_copied = copy_by_chunk(&mut stream, &mut hwriter, chunk_size)?;
-
-            let hash = hasher.finalize_reset();
-            let hash_hex = hex::encode(hash);
-
-            stmt.execute(params![
-                &hash_hex,
-                false,
-                bytes_copied as u64,
-                offset,
-                bytes_copied as u64,
-                cwp_id,
-            ])
-            .with_context(|| "insert to db")?;
-            offset += bytes_copied as u64;
-
-            // results.push((bytes_copied as u64, hash_hex));
+    let mut hasher = Sha256::new();
+    // for stream in sources {
+    for path in iter_loose {
+        // check offset (which is in the end of file when writing) is exceed limit
+        // if so create new file with +1 incremental as cwp, reset offset to 0 and continue
+        // need also trigger transaction commit.
+        if offset >= pack_size_target {
+            tx.commit()?;
+            cwp_id += 1;
+            offset = 0;
+            let p = Dir(&packs).at_path(&format!("{cwp_id}"));
+            cwp = fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(p)?;
+            tx = conn.transaction()?;
         }
+
+        let f = fs::OpenOptions::new().read(true).open(path)?;
+        let mut stream = BufReader::new(f);
+        let mut hwriter = HashWriter::new(&mut cwp, &mut hasher);
+
+        // NOTE: Using small chunk_size can be fast in terms of benchmark.
+        // Ideally should accept a hint for buffer size (loose -> packs)
+        // 64 MiB from legacy dos  TODO: make it configurable??
+        let chunk_size = 65_536;
+        let bytes_copied = copy_by_chunk(&mut stream, &mut hwriter, chunk_size)?;
+
+        let hash = hasher.finalize_reset();
+        let hash_hex = hex::encode(hash);
+
+        let mut stmt = tx.prepare_cached("INSERT OR IGNORE INTO db_object (hashkey, compressed, size, offset, length, pack_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
+        stmt.execute(params![
+            &hash_hex,
+            false,
+            bytes_copied as u64,
+            offset,
+            bytes_copied as u64,
+            cwp_id,
+        ])
+        .with_context(|| "insert to db")?;
+        offset += bytes_copied as u64;
+
+        // results.push((bytes_copied as u64, hash_hex));
     }
     tx.commit()?;
 
+    Ok(())
     // Ok(results)
     // for path in iter_loose {
     //     // let obj = pull_from_loose(hash, cnt)?.unwrap();
@@ -143,7 +143,6 @@ pub fn pack_loose(cnt: &Container) -> anyhow::Result<()> {
     //     anyhow::ensure!(h1 == h2, format!("{} != {}", h1, h2));
     // }
 
-    Ok(())
 }
 
 #[cfg(test)]
@@ -174,7 +173,6 @@ mod tests {
         assert_eq!(info.count.loose, n);
 
         pack_loose(&cnt).unwrap();
-        
 
         let info = stat(&cnt).unwrap();
         assert_eq!(info.count.packs, n);

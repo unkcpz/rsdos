@@ -19,7 +19,7 @@ The (r)u(s)ty  [`(d)isk-(o)bject(s)tore`](https://github.com/aiidateam/disk-obje
 - [x] profiling on packs read (db?, io?) see flamegraph of `batch_packs_read.rs` and it shows db is the bottleneck.
 - [x] packs correctly on adding new packs file
 - [x] loose -> Pack
-- [ ] benchmark on loose -> Pack without compress
+- [x] benchmark on loose -> Pack without compress (more than 3x times faster)
 - [ ] Use `sled` as k-v DB backend which should have better performance than sqlite.
 - [ ] `io_uring`
 - [ ] compression
