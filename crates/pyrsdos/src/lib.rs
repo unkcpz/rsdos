@@ -6,7 +6,7 @@ use std::{
 
 use pyo3::{exceptions::PyValueError, prelude::*, types::PyBytes};
 use pyo3_file::PyFileLikeObject;
-use rsdos::{status, Config, Container};
+use rsdos::{container::PACKS_DB, db, status, Config, Container};
 
 #[pyclass(name = "_Container")]
 struct PyContainer {
@@ -20,6 +20,13 @@ impl PyContainer {
         Self {
             inner: Container::new(folder),
         }
+    }
+
+    fn _init_db(&self) -> PyResult<()> {
+        let db = self.inner.path.join(PACKS_DB);
+        db::create(&db)?;
+
+        Ok(())
     }
 
     fn get_folder(&self) -> PathBuf {
@@ -64,6 +71,10 @@ impl PyContainer {
 
         let results = rsdos::io_packs::multi_push_to_packs(mut_refs, &self.inner)?;
         Ok(results)
+    }
+
+    fn pack_loose(&self) -> PyResult<()> {
+        Ok(rsdos::maintain::pack_loose(&self.inner)?)
     }
 
     // This is 2 times fast than write to writer from py world since there is no overhead to cross

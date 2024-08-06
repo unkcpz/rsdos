@@ -36,8 +36,8 @@ pub struct SizeInfo {
 
 pub fn traverse_loose(cnt: &Container) -> anyhow::Result<impl Iterator<Item = PathBuf>> {
     // TODO: using Dependency Injection mode to notify and handle progress by outside func
-    let spinnner = ProgressBar::new_spinner().with_message("Auditing container stat ...");
-    spinnner.enable_steady_tick(Duration::from_millis(500));
+    // let spinnner = ProgressBar::new_spinner().with_message("Auditing container stat ...");
+    // spinnner.enable_steady_tick(Duration::from_millis(500));
 
     let loose = cnt.loose()?;
     Ok(loose
@@ -50,9 +50,9 @@ pub fn traverse_loose(cnt: &Container) -> anyhow::Result<impl Iterator<Item = Pa
                 .unwrap_or_else(|_| panic!("unable to read {}", path.display()))
         })
         .filter_map(result::Result::ok)
-        .map(|entry| entry.path())
+        .map(|entry| entry.path()))
         // .filter(|path| path.is_file())
-        .progress_with(spinnner))
+        // .progress_with(spinnner))
 }
 
 fn traverse_packs(cnt: &Container) -> anyhow::Result<impl Iterator<Item = PathBuf>> {

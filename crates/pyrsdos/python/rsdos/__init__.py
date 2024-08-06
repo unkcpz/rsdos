@@ -2,6 +2,7 @@ import typing as t
 import io
 from pathlib import Path
 from .rsdos import _Container
+from enum import Enum
 
 # StreamReadBytesType = t.Union[
 #     t.BinaryIO,
@@ -14,6 +15,22 @@ StreamBytesType = t.BinaryIO
 StreamReadBytesType = t.BinaryIO
 StreamSeekBytesType = t.BinaryIO
 
+class CompressMode(Enum):
+    """Various possible behaviors when compressing.
+
+    For now used only in the `repack` function, should probably be applied to all functions
+    that have a `compress` kwarg.
+    """
+
+    # Never compress
+    NO = "no"  # pylint: disable=invalid-name
+    # Always recompress
+    YES = "yes"
+    # Keep the current compression when repacking.
+    KEEP = "keep"
+    # Automatically determine if it's worth compressing this object or not, ideally in a relatively efficient way.
+    AUTO = "auto"
+
 class Container:
 
     def __init__(
@@ -22,8 +39,11 @@ class Container:
     ):
         self.cnt = _Container(folder)
 
+    def _init_db(self):
+        self.cnt._init_db()
+
     def get_folder(self) -> Path:
-        return self.cnt.get_folder()
+        return Path(self.cnt.get_folder())
 
     def _fetch_from_loose(self, hashkey: str, stream: StreamBytesType):
         self.cnt.write_stream_from_loose(hashkey, stream)
@@ -126,7 +146,7 @@ class Container:
         do_fsync: bool = True,
         do_commit: bool = True,
     ) -> t.List[str]:
-        hkey_lst = self.cnt.multi_push_to_packs(content_list)
+        hkey_lst = [i[1] for i in self.cnt.multi_push_to_packs(content_list)]
         return hkey_lst
             
 
@@ -171,4 +191,12 @@ class Container:
 
     def count_objects(self) -> int:
         return self.cnt.get_n_objs()
+
+    def pack_all_loose(
+        self,
+        compress: CompressMode = CompressMode.NO,
+        validate_objects: bool = True,
+        do_fsync: bool = True,
+    ):
+        return self.cnt.pack_loose()
 

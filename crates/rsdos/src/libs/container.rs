@@ -14,7 +14,7 @@ pub struct Container {
     pub path: PathBuf,
 }
 
-const PACKS_DB: &str = "packs.idx";
+pub const PACKS_DB: &str = "packs.idx";
 const CONFIG_FILE: &str = "config.json";
 const LOOSE: &str = "loose";
 const PACKS: &str = "packs";
