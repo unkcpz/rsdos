@@ -8,6 +8,7 @@ rust-version.workspace = true
 
 [dependencies]
 anyhow = "1.0.86"
+bytes = "1.7.1"
 clap = { version = "4.5.9", features = ["derive"] }
 fallible-streaming-iterator = "0.1.9"
 hex = "0.4.3"
