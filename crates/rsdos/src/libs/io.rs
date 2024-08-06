@@ -8,7 +8,7 @@ use crate::{db, Container};
 use anyhow::Context;
 use rusqlite::{params, params_from_iter, Connection};
 
-use crate::{db::PackEntry, utils::Dir};
+use crate::utils::Dir;
 use sha2::{Digest, Sha256};
 
 pub struct Object<R> {
@@ -214,93 +214,23 @@ where
     Ok((bytes_copied as u64, hash_hex))
 }
 
-fn _stream_to_packs<R>(
-    source: &mut R,
-    fpack: &mut fs::File,
-    conn: &Connection,
-    offset: u64,
-    current_pack_id: u64,
-) -> anyhow::Result<(u64, String)>
-where
-    R: Read,
-{
-    let mut hasher = Sha256::new();
-    let mut hwriter = HashWriter::new(fpack, &mut hasher);
-
-    // 64 MiB TODO: make it configurable??
-    let chunk_size = 65_536;
-    let bytes_copied = copy_by_chunk(source, &mut hwriter, chunk_size)?;
-
-    let hash = hasher.finalize();
-    let hash_hex = hex::encode(hash);
-
-    // entry record to DB
-    let packin = PackEntry {
-        hashkey: hash_hex.clone(),
-        compressed: false,
-        size: bytes_copied as u64,
-        offset,
-        length: bytes_copied as u64, // redundent as size
-        pack_id: current_pack_id,
-    };
-
-    db::insert_packin(conn, &packin)?;
-
-    Ok((bytes_copied as u64, hash_hex))
-}
-
 pub fn push_to_packs<R>(source: &mut R, cnt: &Container) -> anyhow::Result<(u64, String)>
 where
     R: Read,
 {
-    // write to <cnt_path>/packs/<u32>
-    let packs = cnt.packs()?;
-
-    // Get the current addable pack
-    // Create pack_id = 0 if not yet packs exists.
-    let mut current_pack_id: u64 = 0;
-    if !Dir(&packs).is_empty()? {
-        for entry in packs.read_dir()? {
-            let path = entry?.path();
-            if let Some(filename) = path.file_name() {
-                let n = filename.to_string_lossy();
-                let n = n.parse().with_context(|| format!("parse {n} to u64"))?;
-                current_pack_id = std::cmp::max(current_pack_id, n);
-            }
-        }
-    }
-
-    // If size of current pack exceed the single pack limit, create next pack
-    let p = Dir(&packs).at_path(&format!("{current_pack_id}"));
-    let mut fpack = fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(p)
-        .with_context(|| format!("open packs/{current_pack_id}"))?;
-
-    // Use new pack if size of the current pack reach or exceed the threshold limit
-    let offset = if fpack.metadata()?.len() >= cnt.config()?.pack_size_target {
-        current_pack_id += 1;
-        0
-    } else {
-        fpack.seek(io::SeekFrom::End(0))?
-    };
-
-    let mut fpack = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(Dir(&packs).at_path(&format!("{current_pack_id}")))?;
-
-    let conn = Connection::open(cnt.packs_db()?)?;
-
-    let (bytes_copied, hash_hex) =
-        _stream_to_packs::<R>(source, &mut fpack, &conn, offset, current_pack_id)?;
+    let (bytes_copied, hash_hex) = multi_push_to_packs(vec![source], cnt)?
+        .first()
+        .map(|(n, hash)| (*n, hash.clone()))
+        .expect("can't find 1st source");
 
     Ok((bytes_copied, hash_hex))
 }
 
 fn find_current_pack_id(packs: &PathBuf, pack_size_target: u64) -> anyhow::Result<u64> {
+    // make sure there is a pack if not create 0
+    if Dir(packs).is_empty()? {
+        fs::File::create(packs.join("0"))?;
+    }
     let mut current_pack_id = 0;
     for entry in packs.read_dir()? {
         let path = entry?.path();
@@ -317,13 +247,21 @@ fn find_current_pack_id(packs: &PathBuf, pack_size_target: u64) -> anyhow::Resul
     if fpack.metadata()?.len() >= pack_size_target {
         current_pack_id += 1;
         let p = Dir(packs).at_path(&format!("{current_pack_id}"));
-        fs::OpenOptions::new().create(true).truncate(true).open(p)?;
+        fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&p)
+            .with_context(|| format!("create {}", &p.display()))?;
     }
 
     Ok(current_pack_id)
 }
 
-pub fn multi_push_to_packs<R>(sources: Vec<&mut R>, cnt: &Container) -> anyhow::Result<Vec<String>>
+pub fn multi_push_to_packs<R>(
+    sources: Vec<&mut R>,
+    cnt: &Container,
+) -> anyhow::Result<Vec<(u64, String)>>
 where
     R: Read,
 {
@@ -375,11 +313,12 @@ where
                 bytes_copied as u64,
                 offset,
                 bytes_copied as u64,
+                cwp_id,
             ])
             .with_context(|| "insert to db")?;
             offset += bytes_copied as u64;
 
-            results.push(hash_hex);
+            results.push((bytes_copied as u64, hash_hex));
         }
     }
     tx.commit()?;
@@ -399,7 +338,7 @@ mod tests {
         let cnt = gen_tmp_container().lock().unwrap();
 
         let mut buf = b"test 0".reader();
-        push_to_packs(&mut buf, &cnt).unwrap();
+        let (_, hash) = push_to_packs(&mut buf, &cnt).unwrap();
 
         // check packs has `0` and audit has only one pack
         // check content of 0 pack is `test 0`
@@ -408,13 +347,22 @@ mod tests {
         assert_eq!(info.count.packs, 1);
 
         let mut sbuf = String::new();
-        let mut f0pack = fs::OpenOptions::new().read(true).open(cnt.packs().unwrap().join("0")).unwrap();
+        let mut f0pack = fs::OpenOptions::new()
+            .read(true)
+            .open(cnt.packs().unwrap().join("0"))
+            .unwrap();
         f0pack.read_to_string(&mut sbuf).unwrap();
+        assert_eq!(sbuf, "test 0");
+
+        // also check pack DB point to correct location to extract content
+        let obj = pull_from_packs(&hash, &cnt).unwrap();
+        let mut sbuf = String::new();
+        obj.unwrap().reader.read_to_string(&mut sbuf).unwrap();
         assert_eq!(sbuf, "test 0");
 
         // subsquent add will still goes to pack 0 (since pack_target_size is 4 GiB)
         let mut buf = b"test 1".reader();
-        push_to_packs(&mut buf, &cnt).unwrap();
+        let (_, hash) = push_to_packs(&mut buf, &cnt).unwrap();
 
         // check packs has `0` and audit has only one pack
         // check content of 0 pack is `test 0`
@@ -423,9 +371,17 @@ mod tests {
         assert_eq!(info.count.packs, 2);
 
         let mut sbuf = String::new();
-        let mut f0pack = fs::OpenOptions::new().read(true).open(cnt.packs().unwrap().join("0")).unwrap();
+        let mut f0pack = fs::OpenOptions::new()
+            .read(true)
+            .open(cnt.packs().unwrap().join("0"))
+            .unwrap();
         f0pack.read_to_string(&mut sbuf).unwrap();
         assert_eq!(sbuf, "test 0test 1");
+
+        let obj = pull_from_packs(&hash, &cnt).unwrap();
+        let mut sbuf = String::new();
+        obj.unwrap().reader.read_to_string(&mut sbuf).unwrap();
+        assert_eq!(sbuf, "test 1");
     }
 
     #[test]
@@ -439,17 +395,25 @@ mod tests {
         fs::File::create(packs.join("1")).unwrap();
 
         let mut buf = b"test 0".reader();
-        push_to_packs(&mut buf, &cnt).unwrap();
+        let (_, hash) = push_to_packs(&mut buf, &cnt).unwrap();
 
-        // check packs has 2 packs 
+        // check packs has 2 packs
         // check content of 1 pack is `test 0`
         let info = stat(&cnt).unwrap();
         assert_eq!(info.count.packs_file, 2);
         assert_eq!(info.count.packs, 1);
 
         let mut sbuf = String::new();
-        let mut f0pack = fs::OpenOptions::new().read(true).open(cnt.packs().unwrap().join("1")).unwrap();
+        let mut f0pack = fs::OpenOptions::new()
+            .read(true)
+            .open(cnt.packs().unwrap().join("1"))
+            .unwrap();
         f0pack.read_to_string(&mut sbuf).unwrap();
+        assert_eq!(sbuf, "test 0");
+
+        let obj = pull_from_packs(&hash, &cnt).unwrap();
+        let mut sbuf = String::new();
+        obj.unwrap().reader.read_to_string(&mut sbuf).unwrap();
         assert_eq!(sbuf, "test 0");
     }
 
@@ -462,23 +426,25 @@ mod tests {
         let packs = cnt.packs().unwrap();
         fs::File::create(packs.join("0")).unwrap();
         let mut p1 = fs::File::create(packs.join("1")).unwrap();
-        let mut bytes_holder = vec![0u8; pack_target_size as usize];
+        let bytes_holder = vec![0u8; pack_target_size as usize];
         p1.write_all(&bytes_holder).unwrap();
 
         // more bytes
         let mut buf = b"test 0".reader();
         push_to_packs(&mut buf, &cnt).unwrap();
 
-        // check packs has 2 packs 
+        // check packs has 2 packs
         // check content of 1 pack is `test 0`
         let info = stat(&cnt).unwrap();
         assert_eq!(info.count.packs_file, 3);
         assert_eq!(info.count.packs, 1);
 
         let mut sbuf = String::new();
-        let mut f0pack = fs::OpenOptions::new().read(true).open(cnt.packs().unwrap().join("2")).unwrap();
+        let mut f0pack = fs::OpenOptions::new()
+            .read(true)
+            .open(cnt.packs().unwrap().join("2"))
+            .unwrap();
         f0pack.read_to_string(&mut sbuf).unwrap();
         assert_eq!(sbuf, "test 0");
-        
     }
 }
