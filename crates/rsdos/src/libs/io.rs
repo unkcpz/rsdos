@@ -2,7 +2,7 @@ use anyhow::Context;
 use bytes::Buf;
 use sha2::Digest;
 use std::io::{self, BufReader, Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::{fs, usize};
 
 pub struct Object<R> {

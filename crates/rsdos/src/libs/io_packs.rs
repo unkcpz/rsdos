@@ -42,13 +42,13 @@ pub fn multi_pull_from_packs(
     hashkeys: &[String],
 ) -> anyhow::Result<Vec<Object<impl Read>>> {
     // TODO: make chunk size configuable
-    let MAX_CHUNK_ITERATE_LENGTH = 9500;
-    let IN_SQL_MAX_LENGTH = 950;
+    let _max_chunk_iterate_length = 9500;
+    let in_sql_max_length = 950;
 
     let mut conn = Connection::open(cnt.packs_db()?)?;
     let tx = conn.transaction()?;
     let mut objs: Vec<_> = Vec::with_capacity(hashkeys.len());
-    for chunk in hashkeys.chunks(IN_SQL_MAX_LENGTH) {
+    for chunk in hashkeys.chunks(in_sql_max_length) {
         let placeholders: Vec<&str> = (0..chunk.len()).map(|_| "?").collect();
         let mut stmt = tx.prepare_cached(&format!("SELECT hashkey, compressed, size, offset, length, pack_id FROM db_object WHERE hashkey IN ({})", placeholders.join(",")))?;
         let rows = stmt.query_map(params_from_iter(chunk), |row| {
