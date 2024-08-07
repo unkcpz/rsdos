@@ -75,8 +75,7 @@ impl PyContainer {
             .map(|s| {
                 let b = s.bind(py);
                 b.as_bytes().to_vec()
-            })
-            .collect();
+            });
 
         let results = rsdos::io_packs::multi_push_to_packs(sources, &self.inner)?;
         Ok(results)

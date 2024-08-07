@@ -130,13 +130,11 @@ fn find_current_pack_id(packs: &PathBuf, pack_size_target: u64) -> anyhow::Resul
     Ok(current_pack_id)
 }
 
-// XXX: sources should be a reader iterator
-pub fn multi_push_to_packs(
-    sources: Vec<impl ReaderMaker>,
-    cnt: &Container,
-) -> anyhow::Result<Vec<(u64, String)>> {
-    let mut results = Vec::new();
-
+pub fn multi_push_to_packs<I>(sources: I, cnt: &Container) -> anyhow::Result<Vec<(u64, String)>>
+where
+    I: IntoIterator,
+    I::Item: ReaderMaker,
+{
     let mut conn = Connection::open(cnt.packs_db()?)?;
     let packs = cnt.packs()?;
     let pack_size_target = cnt.config()?.pack_size_target;
@@ -150,10 +148,10 @@ pub fn multi_push_to_packs(
         .read(true)
         .open(cwp)?;
     let mut offset = cwp.seek(io::SeekFrom::End(0))?;
+    let mut hasher = Sha256::new();
 
     let mut tx = conn.transaction()?;
-
-    let mut hasher = Sha256::new();
+    let mut nbytes_hash = Vec::new();
 
     for rmaker in sources {
         // check offset (which is in the end of file when writing) is exceed limit
@@ -197,11 +195,11 @@ pub fn multi_push_to_packs(
         .with_context(|| "insert to db")?;
         offset += bytes_copied as u64;
 
-        results.push((bytes_copied as u64, hash_hex));
+        nbytes_hash.push((bytes_copied as u64, hash_hex));
     }
     tx.commit()?;
 
-    Ok(results)
+    Ok(nbytes_hash)
 }
 
 #[cfg(test)]
@@ -209,7 +207,9 @@ mod tests {
     use std::{collections::HashMap, io::Write};
 
     use crate::{
-        io::ByteString, stat, test_utils::{gen_tmp_container, PACK_TARGET_SIZE}
+        io::ByteString,
+        stat,
+        test_utils::{gen_tmp_container, PACK_TARGET_SIZE},
     };
 
     use super::*;
