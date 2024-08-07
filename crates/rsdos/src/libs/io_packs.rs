@@ -150,15 +150,14 @@ where
     let mut offset = cwp.seek(io::SeekFrom::End(0))?;
     let mut hasher = Sha256::new();
 
-    let mut tx = conn.transaction()?;
     let mut nbytes_hash = Vec::new();
+    let mut sources = sources.into_iter().peekable();
 
-    for rmaker in sources {
-        // check offset (which is in the end of file when writing) is exceed limit
-        // if so create new file with +1 incremental as cwp, reset offset to 0 and continue
-        // need also trigger transaction commit.
+    // outer loop control the increment of pack id
+    loop {
+        let tx = conn.transaction()?;
         if offset >= pack_size_target {
-            tx.commit()?;
+            // reset
             cwp_id += 1;
             offset = 0;
             let p = Dir(&packs).at_path(&format!("{cwp_id}"));
@@ -167,45 +166,55 @@ where
                 .write(true)
                 .truncate(true)
                 .open(p)?;
-            tx = conn.transaction()?;
         }
 
+        if sources.peek().is_none() {
+            break;
+        } 
 
-        // NOTE: Using small chunk_size can be fast in terms of benchmark.
-        // Ideally should accept a hint for buffer size (loose -> packs)
-        // 64 MiB from legacy dos  TODO: make it configurable??
-        let chunk_size = 65_536;
+        for rmaker in sources.by_ref() {
+            // NOTE: Using small chunk_size can be fast in terms of benchmark.
+            // Ideally should accept a hint for buffer size (loose -> packs)
+            // 64 MiB from legacy dos  TODO: make it configurable??
+            let chunk_size = 65_536;
 
-        // XXX: for if need to do the valitation for the hash, the idea is to having an object
-        // encapsulate the pre-computed hash. For Readers that has no pre-compute hash it return
-        // None. The method is from ReaderMaker and calling rmaker.expected_hash(). If the hash
-        // already exist and do not need to run validation, the writer can be normal writer without
-        // hash.
-        //
-        // XXX: for the compression, it is a flag of writer to tell which compression algorithm to
-        // use.
-        let mut hwriter = HashWriter::new(&mut cwp, &mut hasher);
-        let mut stream = rmaker.make_reader();
-        let bytes_copied = copy_by_chunk(&mut stream, &mut hwriter, chunk_size)?;
+            // XXX: for if need to do the valitation for the hash, the idea is to having an object
+            // encapsulate the pre-computed hash. For Readers that has no pre-compute hash it return
+            // None. The method is from ReaderMaker and calling rmaker.expected_hash(). If the hash
+            // already exist and do not need to run validation, the writer can be normal writer without
+            // hash.
+            //
+            // XXX: for the compression, it is a flag of writer to tell which compression algorithm to
+            // use.
+            let mut hwriter = HashWriter::new(&mut cwp, &mut hasher);
+            let mut stream = rmaker.make_reader();
+            let bytes_copied = copy_by_chunk(&mut stream, &mut hwriter, chunk_size)?;
 
-        let hash = hasher.finalize_reset();
-        let hash_hex = hex::encode(hash);
+            let hash = hasher.finalize_reset();
+            let hash_hex = hex::encode(hash);
 
-        let mut stmt = tx.prepare_cached("INSERT OR IGNORE INTO db_object (hashkey, compressed, size, offset, length, pack_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
-        stmt.execute(params![
-            &hash_hex,
-            false,
-            bytes_copied as u64,
-            offset,
-            bytes_copied as u64,
-            cwp_id,
-        ])
-        .with_context(|| "insert to db")?;
-        offset += bytes_copied as u64;
+            let mut stmt = tx.prepare_cached("INSERT OR IGNORE INTO db_object (hashkey, compressed, size, offset, length, pack_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
+            stmt.execute(params![
+                &hash_hex,
+                false,
+                bytes_copied as u64,
+                offset,
+                bytes_copied as u64,
+                cwp_id,
+            ])
+            .with_context(|| "insert to db")?;
+            offset += bytes_copied as u64;
 
-        nbytes_hash.push((bytes_copied as u64, hash_hex));
+            nbytes_hash.push((bytes_copied as u64, hash_hex));
+
+            if offset >= pack_size_target {
+                break
+            }
+
+        }
+
+        tx.commit()?;
     }
-    tx.commit()?;
 
     Ok(nbytes_hash)
 }
