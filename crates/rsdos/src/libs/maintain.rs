@@ -1,23 +1,53 @@
+use std::path::{Path, PathBuf};
+
 use anyhow::{self, Context};
+use rusqlite::Connection;
 
 use crate::{io_packs::multi_push_to_packs, status::traverse_loose, Container};
 
+fn extract_hash(loose_obj: &Path) -> String {
+    // use a bunch of unwrap, which should be save since operating under loose folder
+    let parent = loose_obj.parent().unwrap().file_name().unwrap();
+    let filename = loose_obj.file_name().unwrap();
+    format!("{}{}", parent.to_str().unwrap(), filename.to_str().unwrap())
+}
+
 // XXX: flag to set if do the validate, if no, use reguler writer not hash writer.
 pub fn pack_loose(cnt: &Container) -> anyhow::Result<()> {
-    let loose_objs = traverse_loose(cnt)
+    let mut loose_objs: Vec<PathBuf> = traverse_loose(cnt)
         .with_context(|| "traverse loose by iter")?
         .collect();
-    multi_push_to_packs(loose_objs, cnt)?;
 
-    Ok(())
+    // if objs in packs, remove it from Vec
+    let conn = Connection::open(cnt.packs_db()?)?;
+    let mut stmt = conn.prepare("SELECT hashkey FROM db_object")?;
+    let rows: Vec<_> = stmt
+        .query([])?
+        .mapped(|row| row.get::<_, String>(0))
+        .map(|r| r.unwrap()) // TODO: decide to discard error finding or panic
+        .collect();
+
+    loose_objs.retain(|obj| {
+        let hash = extract_hash(obj);
+        !rows.contains(&hash)
+    });
+    let expected_hashkeys: Vec<_> = loose_objs.iter().map(|obj| extract_hash(obj)).collect();
+
+    let nbytes_hashkeys = multi_push_to_packs(loose_objs, cnt)?;
+    let got_hashkeys: Vec<_> = nbytes_hashkeys
+        .iter()
+        .map(|(_, hashkey)| hashkey.clone())
+        .collect();
 
     // XXX: the goal is unclear in legacy dos, there are following reasons that can cause the hash
     // mismatched:
     // 1. content change for loose object (this should be checked independently for loose)
     // 2. loose -> pack is not proceed correctly. (this better to be checkd by cheap checksum)
-    // for (h1, h2) in hashkeys.iter().zip(got_hashkeys.iter()) {
-    //     anyhow::ensure!(h1 == h2, format!("{} != {}", h1, h2));
-    // }
+    for (h1, h2) in got_hashkeys.iter().zip(expected_hashkeys.iter()) {
+        anyhow::ensure!(*h1 == *h2, format!("{} != {}", h1, h2));
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
