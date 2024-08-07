@@ -1,100 +1,115 @@
 use anyhow::Context;
-use rusqlite::{params, Connection, OptionalExtension};
 use std::{path::PathBuf, u64};
+use serde::{Serialize, Deserialize};
+use bincode;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PackEntry {
-    pub hashkey: String,
+    pub raw_size: u64,  // uncompressed size
     pub compressed: bool,
-    pub size: u64,
+    pub size: u64,  // real size occupyed in pack
     pub offset: u64,
-    pub length: u64,
     pub pack_id: u64,
 }
 
+/// Create db
 pub fn create(db: &PathBuf) -> anyhow::Result<()> {
     // Create the table if it doesn't already exist
-    let conn = Connection::open(db).with_context(|| "create db")?;
-    conn.execute_batch(
-        "PRAGMA journal_mode = wal;",
-    )
-    .expect("PRAGMA");
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS db_object (
-                    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-                    hashkey VARCHAR NOT NULL,
-                    compressed BOOLEAN NOT NULL,
-                    size INTEGER NOT NULL,
-                    offset INTEGER NOT NULL,
-                    length INTEGER NOT NULL,
-                    pack_id INTEGER NOT NULL
-                )",
-        [],
-    )?;
+    let config = sled::Config::default()
+        .path(db)
+        .cache_capacity(10_000_000_000)
+        .flush_every_ms(Some(1000));
 
-    conn.execute(
-        "CREATE UNIQUE INDEX ix_db_object_hashkey ON db_object (hashkey)",
-        [],
-    )
-    .with_context(|| "execute create SQL")?;
+    config.open()?;
 
     Ok(())
 }
 
-/// Counting number of packed objects and ``total_size`` if they were loose objects
-pub fn stats(db: &PathBuf) -> anyhow::Result<(u64, u64)> {
-    let conn = Connection::open(db)
-        .with_context(|| format!("Open db {} for auditing", db.to_string_lossy()))?;
-    let mut stmt = conn.prepare("SELECT size FROM db_object")?;
-    let rows = stmt
-        .query([])
-        .with_context(|| "query size of objects")?
-        .mapped(|row| row.get::<_, u64>(0));
-
+/// Counting number of packed objects and ``total_size`` if they were loose objects (`raw_size`)
+pub fn stats(db: &sled::Db) -> anyhow::Result<(u64, u64)> {
     let mut count = 0;
     let mut total_size = 0;
-    for size in rows {
-        total_size += size?;
+    for ret in db.iter() {
+        let (_, value) = ret?;
+        let pn: PackEntry = bincode::deserialize(&value).expect("failed to deserialize pack obj");
+        total_size += pn.raw_size;
         count += 1;
     }
     Ok((count, total_size))
 }
 
-pub fn insert_packin(conn: &Connection, packin: &PackEntry) -> anyhow::Result<()> {
-    // NOTE: I use SQL: `INSERT OR IGNORE` to deal with duplicate keys
-    let mut stmt = conn.prepare_cached("INSERT OR IGNORE INTO db_object (hashkey, compressed, size, offset, length, pack_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
-    stmt.execute(
-            params![packin.hashkey, packin.compressed, packin.size, packin.offset, packin.length, packin.pack_id])
-        .with_context(|| format!("insert {packin:?} to db"))?;
-
+pub fn insert(db: &sled::Db, hashkey: &str, pn: &PackEntry) -> anyhow::Result<()> {
+    let value = bincode::serialize(pn).with_context(|| format!("failed to serialize {pn:?} to bincode"))?;
+    db.insert(hashkey, value).with_context(|| "insert failed")?;
     Ok(())
 }
-
-pub fn insert(conn: &Connection, hashkey: &str, compressed: bool, size: u64, offset: u64, length: u64, pack_id: u64) -> anyhow::Result<()> {
-    // NOTE: I use SQL: `INSERT OR IGNORE` to deal with duplicate keys
-    let mut stmt = conn.prepare_cached("INSERT OR IGNORE INTO db_object (hashkey, compressed, size, offset, length, pack_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
-    stmt.execute(
-            params![hashkey, compressed, size, offset, length, pack_id])
-        .with_context(|| "insert to db")?;
-
-    Ok(())
-}
-
 
 // XXX: sub from select_multiple which only query once
-pub fn select(conn: &Connection, hash_hex: &str) -> anyhow::Result<Option<PackEntry>> {
-    let mut stmt = conn.prepare_cached("SELECT hashkey, compressed, size, offset, length, pack_id FROM db_object WHERE hashkey = ?1")?;
-    let entry = stmt.query_row(params![hash_hex], |row| {
-        Ok(PackEntry {
-            hashkey: row.get(0)?,
-            compressed: row.get(1)?,
-            size: row.get(2)?,
-            offset: row.get(3)?,
-            length: row.get(4)?,
-            pack_id: row.get(5)?,
-        })
-    }).optional()?;
-
-    Ok(entry)
+pub fn select(db: &sled::Db, hashkey: &str) -> anyhow::Result<Option<PackEntry>> {
+    let value = db.get(hashkey)?;
+    if let Some(value) = value {
+        let pn: PackEntry = bincode::deserialize(&value).expect("failed so deserialize pack obj");
+        Ok(Some(pn))
+    } else {
+        Ok(None)
+    }
 }
 
+#[cfg(test)]
+mod tests {
+    use tempfile::TempDir;
+
+    use crate::container::PACKS_DB;
+
+    use super::*;
+
+    #[test]
+    fn db_create() {
+        let dir = TempDir::new().unwrap();
+        let db = dir.as_ref().join(PACKS_DB);
+        create(&db).unwrap();
+
+        assert!(db.exists());
+    }
+
+    #[test]
+    fn db_insert_and_select() {
+        let dir = TempDir::new().unwrap();
+        let db = sled::open(dir.as_ref().join(PACKS_DB)).unwrap();
+        let pn = PackEntry {
+            raw_size: 1,
+            compressed: false,
+            size: 2,
+            offset: 200,
+            pack_id: 5,
+        };
+        
+        let hashkey = "random";
+        insert(&db, hashkey, &pn).unwrap();
+        
+        let got_pn = select(&db, hashkey).unwrap().unwrap();
+
+        assert_eq!(got_pn, pn);
+    }
+
+    #[test]
+    fn db_insert_and_stat() {
+        let dir = TempDir::new().unwrap();
+        let db = sled::open(dir.as_ref().join(PACKS_DB)).unwrap();
+        let pn = PackEntry {
+            raw_size: 2,
+            compressed: false,
+            size: 2,
+            offset: 200,
+            pack_id: 5,
+        };
+        
+        insert(&db, "key1", &pn).unwrap();
+        insert(&db, "key2", &pn).unwrap();
+        
+        let (count, tsize) = stats(&db).unwrap();
+
+        assert_eq!(count, 2);
+        assert_eq!(tsize, 4);
+    }
+}

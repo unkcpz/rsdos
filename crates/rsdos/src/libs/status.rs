@@ -97,7 +97,8 @@ pub fn stat(cnt: &Container) -> anyhow::Result<ContainerInfo> {
     // packs info from db
     let packs_db = cnt.packs_db()?;
     let packs_db_size = fs::metadata(&packs_db)?.len();
-    let (packs_count, packs_size) = db::stats(&packs_db)?;
+    let db = sled::open(packs_db)?;
+    let (packs_count, packs_size) = db::stats(&db)?;
 
     // traverse packs and compute
     let iter_packs = traverse_packs(cnt).with_context(|| "traverse packs by iter")?;

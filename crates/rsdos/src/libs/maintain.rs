@@ -19,12 +19,19 @@ pub fn pack_loose(cnt: &Container) -> anyhow::Result<()> {
         .collect();
 
     // if objs in packs, remove it from Vec
-    let conn = Connection::open(cnt.packs_db()?)?;
-    let mut stmt = conn.prepare("SELECT hashkey FROM db_object")?;
-    let rows: Vec<_> = stmt
-        .query([])?
-        .mapped(|row| row.get::<_, String>(0))
-        .map(|r| r.unwrap()) // TODO: decide to discard error finding or panic
+    let db = sled::open(cnt.packs_db()?)?;
+    // let mut stmt = conn.prepare("SELECT hashkey FROM db_object")?;
+    // let rows: Vec<_> = stmt
+    //     .query([])?
+    //     .mapped(|row| row.get::<_, String>(0))
+    //     .map(|r| r.unwrap()) // TODO: decide to discard error finding or panic
+    //     .collect();
+    let rows: Vec<_> = db
+        .iter()
+        .map(|kv| {
+            let (key, _) = kv.unwrap();
+            String::from_utf8(key.to_vec()).unwrap()
+        })
         .collect();
 
     loose_objs.retain(|obj| {
@@ -33,7 +40,7 @@ pub fn pack_loose(cnt: &Container) -> anyhow::Result<()> {
     });
     let expected_hashkeys: Vec<_> = loose_objs.iter().map(|obj| extract_hash(obj)).collect();
 
-    let nbytes_hashkeys = multi_push_to_packs(loose_objs, cnt)?;
+    let nbytes_hashkeys = multi_push_to_packs(loose_objs, cnt, &db)?;
     let got_hashkeys: Vec<_> = nbytes_hashkeys
         .iter()
         .map(|(_, hashkey)| hashkey.clone())

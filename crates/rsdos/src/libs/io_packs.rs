@@ -1,11 +1,12 @@
 use anyhow::Context;
-use rusqlite::{params, params_from_iter, Connection};
+use rusqlite::{params_from_iter, Connection};
 use sha2::{Digest, Sha256};
 use std::io::{self, BufReader, Cursor, Read, Seek, SeekFrom};
 use std::os::unix::fs::FileExt;
 use std::path::PathBuf;
 use std::{fs, usize};
 
+use crate::db::PackEntry;
 use crate::io::{copy_by_chunk, HashWriter, ReaderMaker};
 use crate::{db, Container, Object};
 
@@ -15,9 +16,9 @@ use crate::utils::Dir;
 pub fn pull_from_packs(
     hashkey: &str,
     cnt: &Container,
-) -> anyhow::Result<Option<Object<impl Read>>> {
-    let conn = Connection::open(cnt.packs_db()?)?;
-    if let Some(pack_entry) = db::select(&conn, hashkey)? {
+) -> anyhow::Result<Option<Object<impl BufRead>>> {
+    let db = sled::open(cnt.packs_db()?)?;
+    if let Some(pack_entry) = db::select(&db, obj_hash)? {
         let pack_id = pack_entry.pack_id;
         let expected_size = pack_entry.size;
         let mut pack = fs::OpenOptions::new()
@@ -38,12 +39,57 @@ pub fn pull_from_packs(
     }
 }
 
-// pub fn multi_pull_from_packs_sled(
-//     cnt: &Container,
-//     hashkeys: &[String],
-// ) -> anyhow::Result<Vec<Object<impl Read>>> {
-//     todo!()
-// }
+pub fn multi_pull_from_packs_sled(
+    cnt: &Container,
+    hashkeys: &[String],
+) -> anyhow::Result<Vec<Object<impl Read>>> {
+    // TODO: make chunk size configuable
+    let _max_chunk_iterate_length = 9500;
+    let in_sql_max_length = 950;
+
+    let mut conn = Connection::open(cnt.packs_db()?)?;
+    let tx = conn.transaction()?;
+    let mut objs: Vec<_> = Vec::with_capacity(hashkeys.len());
+    for chunk in hashkeys.chunks(in_sql_max_length) {
+        let placeholders: Vec<&str> = (0..chunk.len()).map(|_| "?").collect();
+        let mut stmt = tx.prepare_cached(&format!("SELECT hashkey, compressed, size, offset, length, pack_id FROM db_object WHERE hashkey IN ({})", placeholders.join(",")))?;
+        let rows = stmt.query_map(params_from_iter(chunk), |row| {
+            let hashkey: String = row.get(0)?;
+            let compressed: bool = row.get(1)?;
+            let size: u64 = row.get(2)?;
+            let offset: u64 = row.get(3)?;
+            let length: u64 = row.get(4)?;
+            let pack_id: u64 = row.get(5)?;
+
+            Ok((hashkey, compressed, size, offset, length, pack_id))
+        })?;
+
+        // collect and sort by offset
+        let mut rows: Vec<_> = rows.into_iter().map(|row| row.unwrap()).collect();
+        rows.sort_by_key(|k| k.3);
+
+        // XXX: find correct pack_id
+        let pack = fs::OpenOptions::new()
+            .read(true)
+            .open(cnt.packs()?.join("0"))?;
+
+        for row in rows {
+            let (hashkey, _, _, offset, length, _pack_id) = row;
+            let buf_size = usize::try_from(length)?;
+
+            let mut buf = vec![0u8; buf_size];
+            pack.read_exact_at(&mut buf, offset)?;
+            let obj = Object {
+                reader: Cursor::new(buf),
+                expected_size: buf_size,
+                hashkey,
+            };
+            objs.push(obj);
+        }
+    }
+    tx.commit()?;
+    Ok(objs)
+}
 
 pub fn multi_pull_from_packs(
     cnt: &Container,
@@ -106,8 +152,8 @@ pub fn multi_pull_from_packs(
     Ok(objs)
 }
 
-pub fn push_to_packs(source: impl ReaderMaker, cnt: &Container) -> anyhow::Result<(u64, String)> {
-    let (bytes_copied, hash_hex) = multi_push_to_packs(vec![source], cnt)?
+pub fn push_to_packs(source: impl ReaderMaker, cnt: &Container, db: &sled::Db) -> anyhow::Result<(u64, String)> {
+    let (bytes_copied, hash_hex) = multi_push_to_packs(vec![source], cnt, db)?
         .first()
         .map(|(n, hash)| (*n, hash.clone()))
         .expect("can't find 1st source");
@@ -147,12 +193,11 @@ fn find_current_pack_id(packs: &PathBuf, pack_size_target: u64) -> anyhow::Resul
     Ok(current_pack_id)
 }
 
-pub fn multi_push_to_packs<I>(sources: I, cnt: &Container) -> anyhow::Result<Vec<(u64, String)>>
+pub fn multi_push_to_packs<I>(sources: I, cnt: &Container, db: &sled::Db) -> anyhow::Result<Vec<(u64, String)>>
 where
     I: IntoIterator,
     I::Item: ReaderMaker,
 {
-    let mut conn = Connection::open(cnt.packs_db()?)?;
     let packs = cnt.packs()?;
     let pack_size_target = cnt.config()?.pack_size_target;
 
@@ -172,7 +217,6 @@ where
 
     // outer loop control the increment of pack id
     loop {
-        let tx = conn.transaction()?;
         if offset >= pack_size_target {
             // reset
             cwp_id += 1;
@@ -189,6 +233,7 @@ where
             break;
         }
 
+        // let result: Result<(), TransactionError<std::io::Error>> = db.transaction(|tx_db| {
         for rmaker in sources.by_ref() {
             // NOTE: Using small chunk_size can be fast in terms of benchmark.
             // Ideally should accept a hint for buffer size (loose -> packs)
@@ -210,16 +255,15 @@ where
             let hash = hasher.finalize_reset();
             let hash_hex = hex::encode(hash);
 
-            let mut stmt = tx.prepare_cached("INSERT OR IGNORE INTO db_object (hashkey, compressed, size, offset, length, pack_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
-            stmt.execute(params![
-                &hash_hex,
-                false,
-                bytes_copied as u64,
+            let value = PackEntry {
+                raw_size: bytes_copied as u64,
+                compressed: false,
+                size: bytes_copied as u64,
                 offset,
-                bytes_copied as u64,
-                cwp_id,
-            ])
-            .with_context(|| "insert to db")?;
+                pack_id: cwp_id,
+            };
+            let value = bincode::serialize(&value)?;
+            db.insert(hash_hex.as_bytes(), value)?;
             offset += bytes_copied as u64;
 
             nbytes_hash.push((bytes_copied as u64, hash_hex));
@@ -228,8 +272,7 @@ where
                 break;
             }
         }
-
-        tx.commit()?;
+        // });
     }
 
     Ok(nbytes_hash)
@@ -251,8 +294,9 @@ mod tests {
     fn io_packs_push_to_0_when_empty() {
         let cnt = gen_tmp_container(PACK_TARGET_SIZE).lock().unwrap();
 
+        let db = sled::open(cnt.packs_db().unwrap()).unwrap();
         let bstr: ByteString = b"test 0".to_vec();
-        let (_, hash) = push_to_packs(bstr, &cnt).unwrap();
+        let (_, hash) = push_to_packs(bstr, &cnt, &db).unwrap();
 
         // check packs has `0` and audit has only one pack
         // check content of 0 pack is `test 0`
@@ -276,7 +320,7 @@ mod tests {
 
         // subsquent add will still goes to pack 0 (since pack_target_size is 4 GiB)
         let bstr: ByteString = b"test 1".to_vec();
-        let (_, hash) = push_to_packs(bstr, &cnt).unwrap();
+        let (_, hash) = push_to_packs(bstr, &cnt, &db).unwrap();
 
         // check packs has `0` and audit has only one pack
         // check content of 0 pack is `test 0`
@@ -302,6 +346,7 @@ mod tests {
     fn io_packs_push_to_1_when_1_exist() {
         let cnt = gen_tmp_container(PACK_TARGET_SIZE).lock().unwrap();
 
+        let db = sled::open(cnt.packs_db().unwrap()).unwrap();
         // create fack placeholder empty pack 0 and pack 1
         // it is expected that content will be added to pack1
         let packs = cnt.packs().unwrap();
@@ -309,7 +354,7 @@ mod tests {
         fs::File::create(packs.join("1")).unwrap();
 
         let bstr: ByteString = b"test 0".to_vec();
-        let (_, hash) = push_to_packs(bstr, &cnt).unwrap();
+        let (_, hash) = push_to_packs(bstr, &cnt, &db).unwrap();
 
         // check packs has 2 packs
         // check content of 1 pack is `test 0`
@@ -336,6 +381,7 @@ mod tests {
         let cnt = gen_tmp_container(PACK_TARGET_SIZE).lock().unwrap();
         let pack_target_size = cnt.config().unwrap().pack_size_target;
 
+        let db = sled::open(cnt.packs_db().unwrap()).unwrap();
         // snuck limit size of bytes into pack 1 and new bytes will go to pack 2
         let packs = cnt.packs().unwrap();
         fs::File::create(packs.join("0")).unwrap();
@@ -350,7 +396,7 @@ mod tests {
         for i in 0..100 {
             let content = format!("test {i}");
             let buf = content.clone().into_bytes();
-            let (_, hash) = push_to_packs(buf, &cnt).unwrap();
+            let (_, hash) = push_to_packs(buf, &cnt, &db).unwrap();
             hash_content_map.insert(hash, content);
         }
 

@@ -23,9 +23,10 @@ pub fn add_file(
     let stat = fs::metadata(file).with_context(|| format!("stat {}", file.display()))?;
     let expected_size = stat.len();
 
+    let db = sled::open(cnt.packs_db()?)?;
     let (bytes_streamd, hash_hex) = match target {
         StoreType::Loose => push_to_loose(file.clone(), cnt)?,
-        StoreType::Packs => push_to_packs(file.clone(), cnt)?,
+        StoreType::Packs => push_to_packs(file.clone(), cnt, &db)?,
     };
 
     anyhow::ensure!(

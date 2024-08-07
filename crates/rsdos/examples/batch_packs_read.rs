@@ -6,7 +6,7 @@ fn main() -> anyhow::Result<()> {
     let cnt_path = env::current_dir()?.join("sample_packs_read");
     fs::create_dir_all(&cnt_path)?;
     let n = 1000;
-    let pack_target_size = 4 * 1024;
+    let pack_target_size = 1024;
     let config = rsdos::Config::new(pack_target_size);
 
     let cnt = rsdos::Container::new(cnt_path);
@@ -21,13 +21,14 @@ fn main() -> anyhow::Result<()> {
                 cnt.initialize(&config)
                     .expect("fail to initialize container");
                 let bar = ProgressBar::new(n);
+                let db = sled::open(cnt.packs_db()?)?;
 
                 for i in 0..n {
                     bar.inc(1);
                     let content = format!("test {i}");
                     let bstring = content.as_bytes().to_vec();
 
-                    rsdos::push_to_packs(bstring, &cnt)?;
+                    rsdos::push_to_packs(bstring, &cnt, &db)?;
                 }
             }
             "purge" => {

@@ -173,8 +173,8 @@ impl Container {
             anyhow::bail!("{} not exist", path.display());
         }
 
-        if !path.is_file() {
-            anyhow::bail!("{} is not a file", path.display());
+        if !path.is_dir() {
+            anyhow::bail!("{} is not a dir", path.display());
         }
 
         Ok(path)
