@@ -3,9 +3,9 @@ use sha2::{Digest, Sha256};
 use std::{env, fs};
 
 fn main() -> anyhow::Result<()> {
-    let cnt_path = env::current_dir()?.join("sample_packs_read");
+    let cnt_path = env::current_dir()?.join("sample_packs_read_sled");
     fs::create_dir_all(&cnt_path)?;
-    let n = 1000;
+    let n = 5000;
     let pack_target_size = 1024;
     let config = rsdos::Config::new(pack_target_size);
 
@@ -25,7 +25,8 @@ fn main() -> anyhow::Result<()> {
 
                 for i in 0..n {
                     bar.inc(1);
-                    let content = format!("test {i}");
+                    // let content = format!("test {i}");
+                    let content = "test".repeat(i as usize);
                     let bstring = content.as_bytes().to_vec();
 
                     rsdos::push_to_packs(bstring, &cnt, &db)?;
@@ -39,7 +40,8 @@ fn main() -> anyhow::Result<()> {
                 let db = sled::open(cnt.packs_db()?)?;
                 let hashkeys: Vec<String> = (0..n)
                     .map(|i| -> String {
-                        let content = format!("test {i}");
+                        // let content = format!("test {i}");
+                        let content = "test".repeat(i as usize);
                         let mut hasher = Sha256::new();
                         hasher.update(content.as_bytes());
                         let hashkey = hasher.finalize();
