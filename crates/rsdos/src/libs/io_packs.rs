@@ -38,6 +38,7 @@ pub fn pull_from_packs(
     }
 }
 
+// XXX: switch argument order, hashkeys and then cnt
 pub fn multi_pull_from_packs(
     cnt: &Container,
     hashkeys: &[String],
