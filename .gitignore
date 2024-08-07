@@ -1,2 +1,4 @@
 /target
 /container
+/sample**
+/perf**

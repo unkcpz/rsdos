@@ -1,7 +1,7 @@
 use anyhow::Context;
 use rusqlite::{params, params_from_iter, Connection};
 use sha2::{Digest, Sha256};
-use std::io::{self, BufRead, BufReader, Cursor, Read, Seek, SeekFrom};
+use std::io::{self, BufReader, Cursor, Read, Seek, SeekFrom};
 use std::os::unix::fs::FileExt;
 use std::path::PathBuf;
 use std::{fs, usize};
@@ -11,12 +11,13 @@ use crate::{db, Container, Object};
 
 use crate::utils::Dir;
 
+// XXX: how to combine this with using multi_pull_from_packs???
 pub fn pull_from_packs(
-    obj_hash: &str,
+    hashkey: &str,
     cnt: &Container,
-) -> anyhow::Result<Option<Object<impl BufRead>>> {
+) -> anyhow::Result<Option<Object<impl Read>>> {
     let conn = Connection::open(cnt.packs_db()?)?;
-    if let Some(pack_entry) = db::select(&conn, obj_hash)? {
+    if let Some(pack_entry) = db::select(&conn, hashkey)? {
         let pack_id = pack_entry.pack_id;
         let expected_size = pack_entry.size;
         let mut pack = fs::OpenOptions::new()
@@ -29,7 +30,7 @@ pub fn pull_from_packs(
         let obj = Object {
             reader: z.take(expected_size),
             expected_size: expected_size as usize,
-            hashkey: obj_hash.to_string(),
+            hashkey: hashkey.to_string(),
         };
         Ok(Some(obj))
     } else {
@@ -40,7 +41,7 @@ pub fn pull_from_packs(
 pub fn multi_pull_from_packs(
     cnt: &Container,
     hashkeys: &[String],
-) -> anyhow::Result<Vec<Object<impl Read>>> {
+) -> anyhow::Result<Vec<Option<Object<impl Read>>>> {
     // TODO: make chunk size configuable
     let _max_chunk_iterate_length = 9500;
     let in_sql_max_length = 950;
@@ -63,26 +64,35 @@ pub fn multi_pull_from_packs(
         })?;
 
         // collect and sort by offset
-        let mut rows: Vec<_> = rows.into_iter().map(|row| row.unwrap()).collect();
-        rows.sort_by_key(|k| k.3);
-
-        // XXX: find correct pack_id
-        let pack = fs::OpenOptions::new()
-            .read(true)
-            .open(cnt.packs()?.join("0"))?;
+        let rows: Vec<_> = rows
+            .into_iter()
+            .map(|row| match row {
+                Ok(r) => Some(r),
+                Err(_) => None,
+            })
+            .collect();
+        // rows.sort_by_key(|k| k.3);
 
         for row in rows {
-            let (hashkey, _, _, offset, length, _pack_id) = row;
-            let buf_size = usize::try_from(length)?;
+            if let Some(row) = row {
+                let (hashkey, _, _, offset, length, pack_id) = row;
+                let buf_size = usize::try_from(length)?;
 
-            let mut buf = vec![0u8; buf_size];
-            pack.read_exact_at(&mut buf, offset)?;
-            let obj = Object {
-                reader: Cursor::new(buf),
-                expected_size: buf_size,
-                hashkey,
-            };
-            objs.push(obj);
+                // XXX: sort pack_id and then offset to read in sequence
+                let pack = fs::OpenOptions::new()
+                    .read(true)
+                    .open(cnt.packs()?.join(format!("{pack_id}")))?;
+                let mut buf = vec![0u8; buf_size];
+                pack.read_exact_at(&mut buf, offset)?;
+                let obj = Object {
+                    reader: Cursor::new(buf),
+                    expected_size: buf_size,
+                    hashkey,
+                };
+                objs.push(Some(obj));
+            } else {
+                objs.push(None);
+            }
         }
     }
     tx.commit()?;
@@ -170,7 +180,7 @@ where
 
         if sources.peek().is_none() {
             break;
-        } 
+        }
 
         for rmaker in sources.by_ref() {
             // NOTE: Using small chunk_size can be fast in terms of benchmark.
@@ -208,9 +218,8 @@ where
             nbytes_hash.push((bytes_copied as u64, hash_hex));
 
             if offset >= pack_size_target {
-                break
+                break;
             }
-
         }
 
         tx.commit()?;
@@ -232,7 +241,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn push_to_pack_0_when_empty() {
+    fn io_packs_push_to_0_when_empty() {
         let cnt = gen_tmp_container(PACK_TARGET_SIZE).lock().unwrap();
 
         let bstr: ByteString = b"test 0".to_vec();
@@ -283,7 +292,7 @@ mod tests {
     }
 
     #[test]
-    fn push_to_pack_1_when_1_exist() {
+    fn io_packs_push_to_1_when_1_exist() {
         let cnt = gen_tmp_container(PACK_TARGET_SIZE).lock().unwrap();
 
         // create fack placeholder empty pack 0 and pack 1
@@ -316,7 +325,7 @@ mod tests {
     }
 
     #[test]
-    fn push_to_pack_2_when_1_reach_limit() {
+    fn io_packs_push_to_2_when_1_reach_limit() {
         let cnt = gen_tmp_container(PACK_TARGET_SIZE).lock().unwrap();
         let pack_target_size = cnt.config().unwrap().pack_size_target;
 
@@ -349,6 +358,62 @@ mod tests {
             let mut sbuf = String::new();
             obj.unwrap().reader.read_to_string(&mut sbuf).unwrap();
             assert_eq!(sbuf, content);
+        }
+    }
+
+    #[test]
+    fn io_packs_pull_from_any_single() {
+        let cnt = gen_tmp_container(64).lock().unwrap();
+
+        let mut hash_content_map: HashMap<String, String> = HashMap::new();
+        for i in 0..100 {
+            let content = format!("test {i}");
+            let buf = content.clone().into_bytes();
+            let (_, hash) = push_to_packs(buf, &cnt).unwrap();
+            hash_content_map.insert(hash, content);
+        }
+
+        // check packs has 2 packs
+        // check content of 1 pack is `test 0`
+        let info = stat(&cnt).unwrap();
+        assert_eq!(info.count.packs_file, 10);
+        assert_eq!(info.count.packs, 100);
+
+        for (hash, content) in hash_content_map {
+            let obj = pull_from_packs(&hash, &cnt).unwrap();
+            let mut sbuf = String::new();
+            obj.unwrap().reader.read_to_string(&mut sbuf).unwrap();
+            assert_eq!(sbuf, content);
+        }
+    }
+
+    #[test]
+    fn io_packs_pull_from_multi() {
+        let cnt = gen_tmp_container(64).lock().unwrap();
+
+        let mut hash_content_map: HashMap<String, String> = HashMap::new();
+        for i in 0..100 {
+            let content = format!("test {i}");
+            let buf = content.clone().into_bytes();
+            let (_, hash) = push_to_packs(buf, &cnt).unwrap();
+            hash_content_map.insert(hash, content);
+        }
+
+        // check packs has 2 packs
+        // check content of 1 pack is `test 0`
+        let info = stat(&cnt).unwrap();
+        assert_eq!(info.count.packs_file, 10);
+        assert_eq!(info.count.packs, 100);
+
+        let hashkeys = hash_content_map.keys().collect::<Vec<_>>();
+        let hashkeys: Vec<_> = hashkeys.iter().map(|&s| s.to_owned()).collect();
+        let objs = multi_pull_from_packs(&cnt, &hashkeys).unwrap();
+        for mut obj in objs.into_iter().flatten() {
+            let mut sbuf = String::new();
+            let content = hash_content_map.get(&obj.hashkey).unwrap();
+            obj.reader.read_to_string(&mut sbuf).unwrap();
+            assert_eq!(sbuf, content.clone());
+            sbuf.clear();
         }
     }
 }
