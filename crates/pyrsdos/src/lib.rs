@@ -51,9 +51,10 @@ impl PyContainer {
     }
 
     fn push_to_loose(&self, stream: Py<PyAny>) -> PyResult<(u64, String)> {
-        let mut file_like = PyFileLikeObject::with_requirements(stream, true, false, false, false)?;
+        let file_like = PyFileLikeObject::with_requirements(stream, true, false, false, false)?;
+        let stream = Stream { fl: file_like };
 
-        rsdos::push_to_loose(&mut file_like, &self.inner)
+        rsdos::push_to_loose(stream, &self.inner)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))
     }
 
@@ -70,12 +71,10 @@ impl PyContainer {
         py: Python,
         sources: Vec<Py<PyBytes>>,
     ) -> PyResult<Vec<(u64, String)>> {
-        let sources = sources
-            .iter()
-            .map(|s| {
-                let b = s.bind(py);
-                b.as_bytes().to_vec()
-            });
+        let sources = sources.iter().map(|s| {
+            let b = s.bind(py);
+            b.as_bytes().to_vec()
+        });
 
         let results = rsdos::io_packs::multi_push_to_packs(sources, &self.inner)?;
         Ok(results)
@@ -119,21 +118,19 @@ impl PyContainer {
         &self,
         hashkeys: Vec<String>,
     ) -> PyResult<HashMap<String, ByteString>> {
-        let mut objs = rsdos::io_packs::multi_pull_from_packs(&self.inner, &hashkeys)?;
+        let mut objs = rsdos::io_packs::multi_pull_from_packs(&hashkeys, &self.inner)?;
         let mut buf = Vec::new();
+        objs.retain(std::option::Option::is_some);
+
         let res = objs
             .iter_mut()
             .map(|obj| {
+                let obj = obj.as_mut().unwrap();
                 let hashkey = &obj.hashkey;
                 buf.clear();
                 let mut cursor = Cursor::new(&mut buf);
                 std::io::copy(&mut obj.reader, &mut cursor).unwrap();
                 (hashkey.to_owned(), buf.clone())
-
-                // NOTE: a bit overhead to copy from buf to buf, in principle can directly take from the memory
-                // let cursor = &mut obj.reader;
-                // let buf = cursor.get_mut();
-                // (hashkey.to_owned(), std::mem::take(buf))
             })
             .collect();
 
