@@ -3,6 +3,7 @@ use serde_json::to_string_pretty;
 
 use crate::utils;
 use crate::{config::Config, db, utils::Dir};
+use core::panic;
 use std::{
     fs,
     io::Write,
@@ -40,6 +41,16 @@ impl Container {
         Container {
             path: path.as_ref().to_owned(),
         }
+    }
+
+    /// This will remove everything in the container folder. Use carefully!
+    ///
+    /// # Panics
+    /// 
+    /// If the `remove_dir_all` or `create_dir_all` failed it will panic.
+    pub fn reset(&self) {
+        fs::remove_dir_all(&self.path).unwrap_or_else(|err| panic!("not able to purge {}: {}", self.path.display(), err));
+        fs::create_dir_all(&self.path).unwrap_or_else(|err| panic!("not able to create after purge {}: {}", self.path.display(), err));
     }
 
     pub fn initialize(&self, config: &Config) -> anyhow::Result<&Self> {

@@ -3,7 +3,7 @@ use std::{fs, usize};
 use anyhow::Context;
 use sha2::{Digest, Sha256};
 
-use crate::io::{copy_by_chunk, HashWriter};
+use crate::io::{copy_by_chunk, HashWriter, ReaderMaker};
 use crate::{Container, Object};
 
 pub fn pull_from_loose(
@@ -29,9 +29,7 @@ pub fn pull_from_loose(
     }
 }
 
-pub fn push_to_loose<R>(source: &mut R, cnt: &Container) -> anyhow::Result<(u64, String)>
-where
-    R: Read,
+pub fn push_to_loose(source: impl ReaderMaker, cnt: &Container) -> anyhow::Result<(u64, String)>
 {
     let chunk_size = 524_288; // 512 MiB TODO: make it configurable??
 
@@ -51,8 +49,8 @@ where
     //
     // Note: using chunk copy is a slightly slow than direct copy but since I don't know the size,
     // have to do the pre-allocate with specific chunk size.
-    let bytes_copied = copy_by_chunk(source, &mut hwriter, chunk_size)?;
-    // let bytes_copied = std::io::copy(source, &mut hwriter)?;
+    let mut stream = source.make_reader();
+    let bytes_copied = copy_by_chunk(&mut stream, &mut hwriter, chunk_size)?;
     let hash = hasher.finalize();
     let hash_hex = hex::encode(hash);
 

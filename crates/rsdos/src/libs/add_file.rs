@@ -4,7 +4,6 @@ use crate::{
 use anyhow::Context;
 use std::{
     fs::{self},
-    io::BufReader,
     path::PathBuf,
 };
 
@@ -18,17 +17,14 @@ pub fn add_file(
     cnt: &Container,
     target: &StoreType,
 ) -> anyhow::Result<(String, String, u64)> {
+    // Race here if file changes in between stat and push, the source may changed
+    // in the end of add check, the size from stat and copied should be identical.
+    // that is why we do streamed size check in the end.
     let stat = fs::metadata(file).with_context(|| format!("stat {}", file.display()))?;
     let expected_size = stat.len();
 
-    // Race here if file changes in between stat and open, the source may changed
-    // in the end of add check the size from stat and copied is identical.
-    let source =
-        fs::File::open(file).with_context(|| format!("open {} for read", file.display()))?;
-    let mut source = BufReader::new(source);
-
     let (bytes_streamd, hash_hex) = match target {
-        StoreType::Loose => push_to_loose(&mut source, cnt)?,
+        StoreType::Loose => push_to_loose(file.clone(), cnt)?,
         StoreType::Packs => push_to_packs(file.clone(), cnt)?,
     };
 

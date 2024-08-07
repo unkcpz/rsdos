@@ -1,68 +1,54 @@
-use rsdos::add_file::StoreType;
+use indicatif::ProgressBar;
 use sha2::{Digest, Sha256};
-use std::{
-    collections::HashMap,
-    env, fs,
-    io::{Cursor, Write},
-};
-use tempfile::NamedTempFile;
+use std::{env, fs};
 
 fn main() -> anyhow::Result<()> {
-    let cnt_path = env::current_dir()?.join("sample");
+    let cnt_path = env::current_dir()?.join("sample_packs_read");
     fs::create_dir_all(&cnt_path)?;
-
-    let config = rsdos::Config::new(4 * 1024 * 1024);
+    let n = 1000;
+    let pack_target_size = 4 * 1024;
+    let config = rsdos::Config::new(pack_target_size);
 
     let cnt = rsdos::Container::new(cnt_path);
+    let args: Vec<String> = std::env::args().collect();
+    let arg = args.get(1).unwrap();
 
-    // // INITIALIZE AND ADD FILES TO LOOSE
-    // cnt.initialize(&config)
-    //     .expect("fail to initialize container");
-    //
-    // let mut hashkeys = Vec::with_capacity(1000);
-    // let orig_d: HashMap<String, String> = (0..1000)
-    //     .map(|i| {
-    //         let mut tf = NamedTempFile::new().unwrap();
-    //         let content = format!("test {i}");
-    //         write!(tf, "{content}").unwrap();
-    //
-    //         let fp = tf.into_temp_path();
-    //         let (hashkey, _, _) = rsdos::add_file(&fp.to_path_buf(), &cnt, &StoreType::Packs)
-    //             .expect("unable to add file {i}");
-    //         hashkeys.push(hashkey.clone());
-    //         (hashkey, content.to_string())
-    //     })
-    //     .collect();
+    if args.len() > 1 {
+        match &arg[..] {
+            "reset" => {
+                // INITIALIZE AND ADD FILES TO LOOSE
+                cnt.reset();
+                cnt.initialize(&config)
+                    .expect("fail to initialize container");
+                let bar = ProgressBar::new(n);
 
-    // read by hashkey
-    let hashkeys: Vec<String> = (0..1000)
-        .map(|i| -> String {
-            let content = format!("test {i}");
-            let mut hasher = Sha256::new();
-            hasher.update(content.as_bytes());
-            let hashkey = hasher.finalize();
-            hex::encode(hashkey)
-        })
-        .collect();
-    let mut objs = rsdos::io_packs::multi_pull_from_packs(&cnt, &hashkeys)?;
-    let mut buf = Vec::new();
-    let d: HashMap<String, String> = objs
-        .iter_mut()
-        .map(|obj| {
-            let hashkey = &obj.hashkey;
-            buf.clear();
-            let mut cursor = Cursor::new(&mut buf);
-            std::io::copy(&mut obj.reader, &mut cursor).unwrap();
-            (hashkey.to_owned(), String::from_utf8(buf.clone()).unwrap())
-        })
-        .collect();
+                for i in 0..n {
+                    bar.inc(1);
+                    let content = format!("test {i}");
+                    let bstring = content.as_bytes().to_vec();
 
-    // for (k, v) in orig_d {
-    //     assert_eq!(*d.get(&k).unwrap().trim().to_string(), v);
-    // }
-    //
-    // // status audit
-    // let _ = rsdos::stat(&cnt).expect("fail to audit container stat");
+                    rsdos::push_to_packs(bstring, &cnt)?;
+                }
+            }
+            "purge" => {
+                fs::remove_dir_all(cnt.path)?;
+            }
+            "bench" => {
+                // FN to benchmark
+                let hashkeys: Vec<String> = (0..n)
+                    .map(|i| -> String {
+                        let content = format!("test {i}");
+                        let mut hasher = Sha256::new();
+                        hasher.update(content.as_bytes());
+                        let hashkey = hasher.finalize();
+                        hex::encode(hashkey)
+                    })
+                    .collect();
+                let _ = rsdos::io_packs::multi_pull_from_packs(&cnt, &hashkeys)?;
+            }
+            _ => anyhow::bail!("unknown flag `{}`, expect `purge`, `bench` or `reset`", arg),
+        }
+    }
 
     Ok(())
 }

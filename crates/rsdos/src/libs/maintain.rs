@@ -52,13 +52,10 @@ pub fn pack_loose(cnt: &Container) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, io::Read};
-
-    use bytes::Buf;
+    use super::*;
 
     use crate::{pull_from_packs, push_to_loose, stat, test_utils::gen_tmp_container};
-
-    use super::*;
+    use std::{collections::HashMap, io::Read};
 
     #[test]
     fn pack_loose_default() {
@@ -70,7 +67,7 @@ mod tests {
         for i in 0..n {
             let content = format!("test {i:03}"); // 8 bytes each
             let buf = content.clone().into_bytes();
-            let (_, hash) = push_to_loose(&mut buf.reader(), &cnt).unwrap();
+            let (_, hash) = push_to_loose(buf, &cnt).unwrap();
             hash_content_map.insert(hash, content);
         }
 
