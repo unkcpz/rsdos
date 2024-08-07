@@ -46,7 +46,7 @@ fn main() -> anyhow::Result<()> {
                         hex::encode(hashkey)
                     })
                     .collect();
-                let _ = rsdos::io_packs::multi_pull_from_packs(&cnt, &hashkeys)?;
+                let _ = rsdos::io_packs::multi_pull_from_packs(&hashkeys, &cnt)?;
             }
             _ => anyhow::bail!("unknown flag `{}`, expect `purge`, `bench` or `reset`", arg),
         }

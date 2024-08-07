@@ -38,10 +38,9 @@ pub fn pull_from_packs(
     }
 }
 
-// XXX: switch argument order, hashkeys and then cnt
 pub fn multi_pull_from_packs(
-    cnt: &Container,
     hashkeys: &[String],
+    cnt: &Container,
 ) -> anyhow::Result<Vec<Option<Object<impl Read>>>> {
     // TODO: make chunk size configuable
     let _max_chunk_iterate_length = 9500;
@@ -408,7 +407,7 @@ mod tests {
 
         let hashkeys = hash_content_map.keys().collect::<Vec<_>>();
         let hashkeys: Vec<_> = hashkeys.iter().map(|&s| s.to_owned()).collect();
-        let objs = multi_pull_from_packs(&cnt, &hashkeys).unwrap();
+        let objs = multi_pull_from_packs(&hashkeys, &cnt).unwrap();
         for mut obj in objs.into_iter().flatten() {
             let mut sbuf = String::new();
             let content = hash_content_map.get(&obj.hashkey).unwrap();
