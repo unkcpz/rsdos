@@ -36,6 +36,7 @@ fn main() -> anyhow::Result<()> {
             }
             "bench" => {
                 // FN to benchmark
+                let db = sled::open(cnt.packs_db()?)?;
                 let hashkeys: Vec<String> = (0..n)
                     .map(|i| -> String {
                         let content = format!("test {i}");
@@ -45,7 +46,7 @@ fn main() -> anyhow::Result<()> {
                         hex::encode(hashkey)
                     })
                     .collect();
-                let _ = rsdos::io_packs::multi_pull_from_packs(&cnt, &hashkeys)?;
+                let _ = rsdos::io_packs::multi_pull_from_packs(&cnt, &hashkeys, &db)?;
             }
             _ => anyhow::bail!("unknown flag `{}`, expect `purge`, `bench` or `reset`", arg),
         }
