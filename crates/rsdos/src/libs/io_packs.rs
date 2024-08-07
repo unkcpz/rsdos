@@ -38,6 +38,13 @@ pub fn pull_from_packs(
     }
 }
 
+// pub fn multi_pull_from_packs_sled(
+//     cnt: &Container,
+//     hashkeys: &[String],
+// ) -> anyhow::Result<Vec<Object<impl Read>>> {
+//     todo!()
+// }
+
 pub fn multi_pull_from_packs(
     cnt: &Container,
     hashkeys: &[String],
