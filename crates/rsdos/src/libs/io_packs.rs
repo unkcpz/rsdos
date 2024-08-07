@@ -170,13 +170,21 @@ where
             tx = conn.transaction()?;
         }
 
-        let mut hwriter = HashWriter::new(&mut cwp, &mut hasher);
 
         // NOTE: Using small chunk_size can be fast in terms of benchmark.
         // Ideally should accept a hint for buffer size (loose -> packs)
         // 64 MiB from legacy dos  TODO: make it configurable??
         let chunk_size = 65_536;
 
+        // XXX: for if need to do the valitation for the hash, the idea is to having an object
+        // encapsulate the pre-computed hash. For Readers that has no pre-compute hash it return
+        // None. The method is from ReaderMaker and calling rmaker.expected_hash(). If the hash
+        // already exist and do not need to run validation, the writer can be normal writer without
+        // hash.
+        //
+        // XXX: for the compression, it is a flag of writer to tell which compression algorithm to
+        // use.
+        let mut hwriter = HashWriter::new(&mut cwp, &mut hasher);
         let mut stream = rmaker.make_reader();
         let bytes_copied = copy_by_chunk(&mut stream, &mut hwriter, chunk_size)?;
 
