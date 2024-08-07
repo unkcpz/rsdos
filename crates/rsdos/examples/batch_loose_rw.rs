@@ -11,10 +11,10 @@ fn main() -> anyhow::Result<()> {
 
     let cnt = rsdos::Container::new(cnt_path);
     let args: Vec<String> = std::env::args().collect();
-    let arg1 = args.get(1).unwrap();
-    let arg2 = args.get(2).unwrap();
 
     if args.len() > 1 {
+        let arg1 = args.get(1).unwrap();
+
         match &arg1[..] {
             "reset" => {
                 // INITIALIZE AND ADD FILES TO LOOSE
@@ -26,6 +26,7 @@ fn main() -> anyhow::Result<()> {
                 fs::remove_dir_all(cnt.path)?;
             }
             "bench" => {
+                let arg2 = args.get(2).unwrap();
                 match &arg2[..] {
                     "push" => {
                         let bar = ProgressBar::new(n);
