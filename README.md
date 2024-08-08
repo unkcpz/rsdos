@@ -2,40 +2,41 @@
 
 The (r)u(s)ty  [`(d)isk-(o)bject(s)tore`](https://github.com/aiidateam/disk-objectstore).
 
-## Progress
-
-- [x] Init command
-- [x] Status command and test on large dos
-- [x] AddFiles and then can start prepare tests cases
-- [x] Prepare test using stream to loose and test on init/status/add-files
-- [x] Read APIs: has_objects, get_object_hash, get_folder, get_object_stream, get_objects_stream_and_meta, list_all_objects
-- [x] Container as an struct
-- [x] pyo3 bindings and get object iter bind
-- [x] 1st benchmark with python dos on loose read and write behaviors
-- [x] Pack write
-- [x] Pack read
-- [x] Solve HashWriter overhead by using reference instead of mem alloc for each entry visiting
-- [x] benchmark on packs read/write
-- [x] profiling on packs read (db?, io?) see flamegraph of `batch_packs_read.rs` and it shows db is the bottleneck.
-- [x] packs correctly on adding new packs file
-- [x] loose -> Pack
-- [x] benchmark on loose -> Pack without compress (more than 3x times faster)
-- [ ] Use `sled` as k-v DB backend which should have better performance than sqlite.
-- [ ] `io_uring`
-- [ ] compression
-- [ ] benchmark on pack with compress
-- [ ] docs as library
-- [ ] optimize
-- [ ] validate
-- [ ] backup
-- [ ] benchmark on optimize/validate/backup ...
-- [ ] own rust benchmark on detail performance tuning.
-- [ ] Compress on adding to loose as git. Header definition required.
-- [ ] hide direct write to packs and shading with same loose structure
-- [ ] generic Container interface that can host data in online storage.
-- [ ] Add mutex to the pack write, panic when other thread is writing. (or io_uring take care of async?)
-
 ## Design
+
+### APIs
+
+#### Rust
+
+- `insert` and `insert_many` for insert single or many objects to container.
+- `extract` and `extract_many` for extract single or many objects from container.
+- `insert_many` and `extract_many` should both using iterator as input/output since the number of objects can be huge. Meanwhile using iterator helps with buffer management on rw large amount of files.
+- Since insert/extract can interact with either loose or packed store, I use enum-based strategy.
+- naming convention are `loose` and `packed`. To compatible with legacy dos, if legacy container exist, `packs` is also valid.
+- `pack` is the operation to move objects from loose to packed store. It calling `insert_many` to packed store since no overhead on DB openning/closing. 
+- `repack` is on packed store and do the `pack` again using `sandbox` folder.
+- Besides the `pack` and `repack` cases above, `insert_many` to packed store should not exposed to normal user. 
+- To make `Container` a generic type, things that implement `insert`, `extract`, `insert_many` and `extract_many` should be a Container no matter it is local or not. 
+
+#### Py wrapper
+
+I think open container as context manager is a bad idea in legacy dos. Because the drop part is calling db.close() which only required for packs rw. 
+In princile the context manager should always used since otherwise DB is not gracefully tear down and cause memory leak. 
+Rust will take care of drop in scope so I will not put any drop codes for container in py wrapper.
+After initialize the container, the object is straightforward to use and every IO has its own connection to DB.
+Since I am using `sled` as embeded DB, it is even safe to be used in a non-blocking condition (not tested but in principle in we trust `sled`). 
+
+When interact with container, client side (user) have no knowledge on where the objects are stored it can be in loose or packed. 
+Therefore, when calling `insert` or `insert_many` from python wrapper it always goes to loose. 
+When calling `extract` or `extract_many` it will check loose first and then packed store to get the object(s). 
+The `pack` operation will trigger the move from loose to packed store and result into the objects are distrubuted in two places.
+
+### Migration
+
+- The loose is the same, `packs` need to rename to `packed`.
+- The `config.json` will contain more information so use default to fill the missing field.
+- The packed DB is the most important thing to migrate, all elements are read out and injected into the new embeded DB backend.
+- To do the migration, function as CLI command is provided. I also need to provide python wrapper so it can call from AiiDA.
 
 ### File operation timeout
 
@@ -82,6 +83,7 @@ This design at the same time makes the boundary looks symmetry in turns of read 
 ## Performance notes
 
 - When add duplicate file, if add a file that has same content, will skip the move operation. 
+- `zstd` is faster than zlib: https://github.com/facebook/zstd?tab=readme-ov-file#benchmarks
 
 ### Time scales to be noticed (2009)
 https://surana.wordpress.com/2009/01/01/numbers-everyone-should-know/
@@ -99,6 +101,7 @@ https://surana.wordpress.com/2009/01/01/numbers-everyone-should-know/
 - Read 1 MB sequentially from network 10,000,000 ns
 - Read 1 MB sequentially from disk 30,000,000 ns
 - Send packet CA->Netherlands->CA 150,000,000 ns
+
 
 ### Improvement ideas
 
@@ -119,6 +122,41 @@ https://surana.wordpress.com/2009/01/01/numbers-everyone-should-know/
 
 ## API discrepancy with legacy dos
 
-- useless `close()`, since rust manage drop after outof scope
-- some exceptions are quite redundent such as `FileeNotFoundError`, and `NotInitialized` Error which are take care by the anyhow to propogate up already.
-- getter for `loose_prefix_len` and `pack_size_targer` is passing through `Config` in rsdos, no willing to support expose API to container.
+- useless `close()`, since rust manage drop after out of scope
+- some exceptions are quite redundent such as `FileNotFoundError`, and `NotInitialized` Error which are take care by the anyhow to propogate up already.
+- getter for `loose_prefix_len` and `pack_size_target` is passing through `Config` in rsdos, no willing to support expose API to container.
+
+## Progress
+
+- [x] Init command
+- [x] Status command and test on large dos
+- [x] AddFiles and then can start prepare tests cases
+- [x] Prepare test using stream to loose and test on init/status/add-files
+- [x] Read APIs: has_objects, get_object_hash, get_folder, get_object_stream, get_objects_stream_and_meta, list_all_objects
+- [x] Container as an struct
+- [x] pyo3 bindings and get object iter bind
+- [x] 1st benchmark with python dos on loose read and write behaviors
+- [x] Pack write
+- [x] Pack read
+- [x] Solve HashWriter overhead by using reference instead of mem alloc for each entry visiting
+- [x] benchmark on packs read/write
+- [x] profiling on packs read (db?, io?) see flamegraph of `batch_packs_read.rs` and it shows db is the bottleneck.
+- [x] packs correctly on adding new packs file
+- [x] loose -> Pack
+- [x] benchmark on loose -> Pack without compress (more than 3x times faster)
+- [ ] API redesign to make it ergonamic and idiomatic Rust
+- [ ] compression
+- [ ] benchmark on pack with compress
+- [ ] Use `sled` as k-v DB backend which should have better performance than sqlite [#1](https://github.com/unkcpz/rsdos/pull/1)
+- [ ] `io_uring`
+- [ ] docs as library
+- [ ] optimize
+- [ ] validate
+- [ ] backup
+- [ ] benchmark on optimize/validate/backup ...
+- [ ] own rust benchmark on detail performance tuning.
+- [ ] Compress on adding to loose as git. Header definition required.
+- [ ] hide direct write to packs and shading with same loose structure
+- [ ] generic Container interface that can host data in online storage.
+- [ ] Add mutex to the pack write, panic when other thread is writing. (or io_uring take care of async?)
+- [ ] Make `Container` generic and natural to support online object storage.
