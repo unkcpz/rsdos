@@ -6,31 +6,42 @@ use std::os::unix::fs::FileExt;
 use std::path::PathBuf;
 use std::{fs, usize};
 
-use crate::io::{copy_by_chunk, HashWriter, ReaderMaker};
+use crate::io::{copy_by_chunk, ByteString, HashWriter, ReaderMaker};
 use crate::{db, Container, Object};
 
 use crate::utils::Dir;
 
 // XXX: how to combine this with using multi_pull_from_packs???
+// In principle, single read is more practical than the multiple read,
+// should considered other way around to use this pull in multi_pull function.
+// The reason is that read will first fill the memory so kind of a problem when reading large
+// file. For a single read, the reader can be returned (file with offset and size to read), and
+// then proceed with write to writer using buffer reader/writer. 
 pub fn pull_from_packs(
     hashkey: &str,
     cnt: &Container,
-) -> anyhow::Result<Option<Object<impl Read>>> {
+) -> anyhow::Result<Option<Object<Cursor<ByteString>>>> {
     let conn = Connection::open(cnt.packs_db()?)?;
-    if let Some(pack_entry) = db::select(&conn, hashkey)? {
-        let pack_id = pack_entry.pack_id;
-        let expected_size = pack_entry.size;
-        let mut pack = fs::OpenOptions::new()
+    if let Some(pn) = db::select(&conn, hashkey)? {
+        let (hashkey, _, _, offset, length, pack_id) = (
+            pn.hashkey,
+            pn.compressed,
+            pn.size,
+            pn.offset,
+            pn.length,
+            pn.pack_id,
+        );
+        let buf_size = usize::try_from(length)?;
+        let pack = fs::OpenOptions::new()
             .read(true)
             .open(cnt.packs()?.join(format!("{pack_id}")))?;
-        pack.seek(SeekFrom::Start(pack_entry.offset))?;
+        let mut buf = vec![0u8; buf_size];
+        pack.read_exact_at(&mut buf, offset)?;
 
-        // open a buffer as reader
-        let z = BufReader::new(pack);
         let obj = Object {
-            reader: z.take(expected_size),
-            expected_size: expected_size as usize,
-            hashkey: hashkey.to_string(),
+            reader: Cursor::new(buf),
+            expected_size: buf_size,
+            hashkey,
         };
         Ok(Some(obj))
     } else {
@@ -41,7 +52,7 @@ pub fn pull_from_packs(
 pub fn multi_pull_from_packs(
     hashkeys: &[String],
     cnt: &Container,
-) -> anyhow::Result<Vec<Option<Object<impl Read>>>> {
+) -> anyhow::Result<Vec<Option<Object<Cursor<ByteString>>>>> {
     // TODO: make chunk size configuable
     let _max_chunk_iterate_length = 9500;
     let in_sql_max_length = 950;
@@ -49,6 +60,8 @@ pub fn multi_pull_from_packs(
     let mut conn = Connection::open(cnt.packs_db()?)?;
     let tx = conn.transaction()?;
     let mut objs: Vec<_> = Vec::with_capacity(hashkeys.len());
+    // XXX: It makes less sense to return an Option to represent the hashkey is not found, since
+    // WHERE IN query is not guaranteed the results are in order.
     for chunk in hashkeys.chunks(in_sql_max_length) {
         let placeholders: Vec<&str> = (0..chunk.len()).map(|_| "?").collect();
         let mut stmt = tx.prepare_cached(&format!("SELECT hashkey, compressed, size, offset, length, pack_id FROM db_object WHERE hashkey IN ({})", placeholders.join(",")))?;
@@ -63,7 +76,6 @@ pub fn multi_pull_from_packs(
             Ok((hashkey, compressed, size, offset, length, pack_id))
         })?;
 
-        // collect and sort by offset
         let rows: Vec<_> = rows
             .into_iter()
             .map(|row| match row {
@@ -71,6 +83,7 @@ pub fn multi_pull_from_packs(
                 Err(_) => None,
             })
             .collect();
+        // collect and sort by offset
         // rows.sort_by_key(|k| k.3);
 
         for row in rows {
