@@ -139,7 +139,7 @@ fn main() -> anyhow::Result<()> {
             let obj = rsdos::pull_from_loose(&object_hash, &cnt)?;
             match obj {
                 Some(obj) => {
-                    let mut buf_rdr = BufReader::new(obj.make_reader()); 
+                    let mut buf_rdr = BufReader::new(obj.make_reader()?); 
                     let n = std::io::copy(&mut buf_rdr, &mut std::io::stdout())
                         .with_context(|| "write object to stdout")?;
 

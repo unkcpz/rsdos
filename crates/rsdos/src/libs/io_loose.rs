@@ -1,11 +1,14 @@
 use anyhow::Context;
 use sha2::{Digest, Sha256};
-use std::io::{self, BufRead, BufReader, BufWriter, Read};
+use std::fs;
+use std::io::{BufWriter, Read};
 use std::path::{Path, PathBuf};
-use std::{fs, usize};
 
-use crate::io::{copy_by_chunk, ByteStr, ByteString, HashWriter, ReaderMaker};
-use crate::{utils, Container, Object};
+use crate::io::{copy_by_chunk, ByteString, HashWriter, ReaderMaker};
+use crate::Container;
+use crate::utils::Error;
+
+use crate::io::Error as IOError;
 
 pub struct LObject {
     pub id: String,
@@ -22,22 +25,29 @@ impl LObject {
         }
     }
 
-    fn to_bytes(&self) -> ByteString {
-        let mut rdr = self.make_reader();
+    #[allow(dead_code)]
+    fn to_bytes(&self) -> Result<ByteString, IOError> {
+        let mut rdr = self.make_reader()?;
         let mut buf = vec![];
-        let n = std::io::copy(&mut rdr, &mut buf).unwrap();
-        assert_eq!(n, self.expected_size);
-        buf
+        let n = std::io::copy(&mut rdr, &mut buf)?;
+        if n == self.expected_size {
+            Ok(buf)
+        } else {
+            Err(IOError::UnexpectedCopySize {
+                expected: self.expected_size,
+                got: n,
+            })
+        }
     }
 }
 
 impl ReaderMaker for LObject {
-    fn make_reader(&self) -> impl Read {
-        fs::OpenOptions::new().read(true).open(&self.loc).unwrap()
+    fn make_reader(&self) -> Result<impl Read, IOError> {
+        Ok(fs::OpenOptions::new().read(true).open(&self.loc)?)
     }
 }
 
-pub fn pull_from_loose(hashkey: &str, cnt: &Container) -> Result<Option<LObject>, utils::Error> {
+pub fn pull_from_loose(hashkey: &str, cnt: &Container) -> Result<Option<LObject>, Error> {
     let loc = cnt
         .loose()?
         .join(format!("{}/{}", &hashkey[..2], &hashkey[2..]));
@@ -70,7 +80,7 @@ pub fn push_to_loose(source: impl ReaderMaker, cnt: &Container) -> anyhow::Resul
     // have to do the pre-allocate with specific chunk size.
     let chunk_size = 524_288; // 512 MiB TODO: make it configurable??
                               //
-    let mut stream = source.make_reader();
+    let mut stream = source.make_reader()?;
     let bytes_copied = copy_by_chunk(&mut stream, &mut hwriter, chunk_size)?;
     let hash = hasher.finalize();
     let hash_hex = hex::encode(hash);
@@ -112,7 +122,7 @@ mod tests {
 
         let obj = pull_from_loose(&hashkey, &cnt).unwrap().unwrap();
         assert_eq!(
-            String::from_utf8(obj.to_bytes()),
+            String::from_utf8(obj.to_bytes().unwrap()),
             String::from_utf8(b"test 0".to_vec())
         );
     }

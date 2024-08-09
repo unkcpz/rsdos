@@ -210,7 +210,7 @@ where
             // XXX: for the compression, it is a flag of writer to tell which compression algorithm to
             // use.
             let mut hwriter = HashWriter::new(&mut cwp, &mut hasher);
-            let mut stream = rmaker.make_reader();
+            let mut stream = rmaker.make_reader()?;
             let bytes_copied = copy_by_chunk(&mut stream, &mut hwriter, chunk_size)?;
 
             let hash = hasher.finalize_reset();

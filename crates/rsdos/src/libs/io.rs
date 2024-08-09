@@ -1,10 +1,21 @@
 use anyhow::Context;
 use bytes::Buf;
 use sha2::Digest;
-use std::io::{self, BufReader, Read, Write};
+use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::{fs, usize};
 
+#[derive(Debug, thiserror::Error)]
+#[allow(missing_docs)]
+pub enum Error {
+    #[error("Could not proceed std io operation")]
+    StdIO(#[from] std::io::Error),
+    #[error("Unexpected size in copy: expect {} got {}", .expected, .got)]
+    UnexpectedCopySize{
+        expected: u64,
+        got: u64
+    },
+}
 
 pub struct HashWriter<'a, W, H> {
     pub writer: W,
@@ -67,16 +78,16 @@ where
 }
 
 pub trait ReaderMaker {
-    fn make_reader(&self) -> impl Read;
+    fn make_reader(&self) -> Result<impl Read, Error>;
 }
 
 impl ReaderMaker for PathBuf {
-    fn make_reader(&self) -> impl Read {
+    fn make_reader(&self) -> Result<impl Read, Error> {
         let f = fs::OpenOptions::new()
             .read(true)
             .open(self)
             .unwrap_or_else(|_| panic!("open {}", self.display()));
-        f
+        Ok(f)
     }
 }
 
@@ -84,8 +95,8 @@ pub type ByteStr = [u8];
 pub type ByteString = Vec<u8>;
 
 impl ReaderMaker for ByteString {
-    fn make_reader(&self) -> impl Read {
-        self.reader()
+    fn make_reader(&self) -> Result<impl Read, Error> {
+        Ok(self.reader())
     }
 }
 
