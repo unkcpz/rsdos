@@ -136,7 +136,7 @@ fn main() -> anyhow::Result<()> {
         Commands::CatFile { object_hash } => {
             // XXX: flag that support directly push to packs
             let cnt = rsdos::Container::new(&cnt_path);
-            let obj = rsdos::pull_from_loose(&object_hash, &cnt)?;
+            let obj = rsdos::io_loose::extract(&object_hash, &cnt)?;
             match obj {
                 Some(obj) => {
                     let mut buf_rdr = BufReader::new(obj.make_reader()?); 

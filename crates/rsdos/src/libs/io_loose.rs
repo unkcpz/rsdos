@@ -43,22 +43,7 @@ impl ReaderMaker for LObject {
         Ok(fs::OpenOptions::new().read(true).open(&self.loc)?)
     }
 }
-
-pub fn pull_from_loose(hashkey: &str, cnt: &Container) -> Result<Option<LObject>, Error> {
-    let loc = cnt
-        .loose()?
-        .join(format!("{}/{}", &hashkey[..2], &hashkey[2..]));
-    if loc.exists() {
-        let f = fs::File::open(&loc)?;
-        let expected_size = f.metadata()?.len();
-        let obj = LObject::new(hashkey, loc, expected_size);
-        Ok(Some(obj))
-    } else {
-        Ok(None)
-    }
-}
-
-pub fn push_to_loose(source: &impl ReaderMaker, cnt: &Container) -> Result<(u64, String), Error> {
+pub fn insert(source: &impl ReaderMaker, cnt: &Container) -> Result<(u64, String), Error> {
     // <cnt_path>/sandbox/<uuid> as dst
     let dst = format!("{}.tmp", uuid::Uuid::new_v4());
     let dst = cnt.sandbox()?.join(dst);
@@ -95,6 +80,20 @@ pub fn push_to_loose(source: &impl ReaderMaker, cnt: &Container) -> Result<(u64,
     Ok((bytes_copied as u64, hash_hex))
 }
 
+pub fn extract(hashkey: &str, cnt: &Container) -> Result<Option<LObject>, Error> {
+    let loc = cnt
+        .loose()?
+        .join(format!("{}/{}", &hashkey[..2], &hashkey[2..]));
+    if loc.exists() {
+        let f = fs::File::open(&loc)?;
+        let expected_size = f.metadata()?.len();
+        let obj = LObject::new(hashkey, loc, expected_size);
+        Ok(Some(obj))
+    } else {
+        Ok(None)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{
@@ -110,14 +109,14 @@ mod tests {
         let cnt = gen_tmp_container(PACK_TARGET_SIZE).lock().unwrap();
 
         let bstr: ByteString = b"test 0".to_vec();
-        let (_, hashkey) = push_to_loose(&bstr, &cnt).unwrap();
+        let (_, hashkey) = insert(&bstr, &cnt).unwrap();
 
         // check packs has `0` and audit has only one pack
         // check content of 0 pack is `test 0`
         let info = stat(&cnt).unwrap();
         assert_eq!(info.count.loose, 1);
 
-        let obj = pull_from_loose(&hashkey, &cnt).unwrap().unwrap();
+        let obj = extract(&hashkey, &cnt).unwrap().unwrap();
         assert_eq!(
             String::from_utf8(obj.to_bytes().unwrap()).unwrap(),
             String::from_utf8(b"test 0".to_vec()).unwrap(),

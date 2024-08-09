@@ -65,13 +65,13 @@ impl ReaderMaker for PObject {
     }
 }
 
-// XXX: how to combine this with using multi_pull_from_packs???
+// XXX: how to combine this with using extract_many???
 // In principle, single read is more practical than the multiple read,
-// should considered other way around to use this pull in multi_pull function.
+// should considered other way around to use this extract in extract_many function.
 // The reason is that read will first fill the memory so kind of a problem when reading large
 // file. For a single read, the reader can be returned (file with offset and size to read), and
 // then proceed with write to writer using buffer reader/writer.
-pub fn pull_from_packs(hashkey: &str, cnt: &Container) -> Result<Option<PObject>, Error> {
+pub fn extract(hashkey: &str, cnt: &Container) -> Result<Option<PObject>, Error> {
     let conn = Connection::open(cnt.packs_db()?)?;
     if let Some(pn) = db::select(&conn, hashkey)? {
         let pack_id = pn.pack_id;
@@ -83,7 +83,7 @@ pub fn pull_from_packs(hashkey: &str, cnt: &Container) -> Result<Option<PObject>
     }
 }
 
-pub fn multi_pull_from_packs(hashkeys: &[String], cnt: &Container) -> Result<Vec<PObject>, Error> {
+pub fn extract_many(hashkeys: &[String], cnt: &Container) -> Result<Vec<PObject>, Error> {
     // TODO: make chunk size configuable
     let _max_chunk_iterate_length = 9500;
     let in_sql_max_length = 950;
@@ -133,8 +133,8 @@ pub fn multi_pull_from_packs(hashkeys: &[String], cnt: &Container) -> Result<Vec
     Ok(objs)
 }
 
-pub fn push_to_packs(source: impl ReaderMaker, cnt: &Container) -> Result<(u64, String), Error> {
-    let (bytes_copied, hash_hex) = multi_push_to_packs(vec![source], cnt)?
+pub fn insert(source: impl ReaderMaker, cnt: &Container) -> Result<(u64, String), Error> {
+    let (bytes_copied, hash_hex) = insert_many(vec![source], cnt)?
         .first()
         .map(|(n, hash)| (*n, hash.clone()))
         .unwrap();
@@ -182,7 +182,7 @@ fn find_current_pack_id(packs: &PathBuf, pack_size_target: u64) -> Result<u64, E
     Ok(current_pack_id)
 }
 
-pub fn multi_push_to_packs<I>(sources: I, cnt: &Container) -> Result<Vec<(u64, String)>, Error>
+pub fn insert_many<I>(sources: I, cnt: &Container) -> Result<Vec<(u64, String)>, Error>
 where
     I: IntoIterator,
     I::Item: ReaderMaker,
@@ -283,11 +283,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn io_packs_push_to_0_when_empty() {
+    fn io_packs_insert_0_when_empty() {
         let cnt = gen_tmp_container(PACK_TARGET_SIZE).lock().unwrap();
 
         let bstr: ByteString = b"test 0".to_vec();
-        let (_, hash) = push_to_packs(bstr, &cnt).unwrap();
+        let (_, hash) = insert(bstr, &cnt).unwrap();
 
         // check packs has `0` and audit has only one pack
         // check content of 0 pack is `test 0`
@@ -304,7 +304,7 @@ mod tests {
         assert_eq!(sbuf, "test 0");
 
         // also check pack DB point to correct location to extract content
-        let obj = pull_from_packs(&hash, &cnt).unwrap().unwrap();
+        let obj = extract(&hash, &cnt).unwrap().unwrap();
         assert_eq!(
             String::from_utf8(obj.to_bytes().unwrap()).unwrap(),
             "test 0".to_string()
@@ -312,7 +312,7 @@ mod tests {
 
         // subsquent add will still goes to pack 0 (since pack_target_size is 4 GiB)
         let bstr: ByteString = b"test 1".to_vec();
-        let (_, hash) = push_to_packs(bstr, &cnt).unwrap();
+        let (_, hash) = insert(bstr, &cnt).unwrap();
 
         // check packs has `0` and audit has only one pack
         // check content of 0 pack is `test 0`
@@ -328,7 +328,7 @@ mod tests {
         f0pack.read_to_string(&mut sbuf).unwrap();
         assert_eq!(sbuf, "test 0test 1");
 
-        let obj = pull_from_packs(&hash, &cnt).unwrap().unwrap();
+        let obj = extract(&hash, &cnt).unwrap().unwrap();
         assert_eq!(
             String::from_utf8(obj.to_bytes().unwrap()).unwrap(),
             "test 1".to_string()
@@ -336,7 +336,7 @@ mod tests {
     }
 
     #[test]
-    fn io_packs_push_to_1_when_1_exist() {
+    fn io_packs_insert_1_when_1_exist() {
         let cnt = gen_tmp_container(PACK_TARGET_SIZE).lock().unwrap();
 
         // create fack placeholder empty pack 0 and pack 1
@@ -346,7 +346,7 @@ mod tests {
         fs::File::create(packs.join("1")).unwrap();
 
         let bstr: ByteString = b"test 0".to_vec();
-        let (_, hash) = push_to_packs(bstr, &cnt).unwrap();
+        let (_, hash) = insert(bstr, &cnt).unwrap();
 
         // check packs has 2 packs
         // check content of 1 pack is `test 0`
@@ -362,7 +362,7 @@ mod tests {
         f0pack.read_to_string(&mut sbuf).unwrap();
         assert_eq!(sbuf, "test 0");
 
-        let obj = pull_from_packs(&hash, &cnt).unwrap().unwrap();
+        let obj = extract(&hash, &cnt).unwrap().unwrap();
         assert_eq!(
             String::from_utf8(obj.to_bytes().unwrap()).unwrap(),
             "test 0".to_string()
@@ -370,7 +370,7 @@ mod tests {
     }
 
     #[test]
-    fn io_packs_push_to_2_when_1_reach_limit() {
+    fn io_packs_insert_2_when_1_reach_limit() {
         let cnt = gen_tmp_container(PACK_TARGET_SIZE).lock().unwrap();
         let pack_target_size = cnt.config().unwrap().pack_size_target;
 
@@ -383,12 +383,12 @@ mod tests {
 
         // more bytes
         // let mut buf = b"test 0".reader();
-        // let (_, hash) = push_to_packs(&mut buf, &cnt).unwrap();
+        // let (_, hash) = insert(&mut buf, &cnt).unwrap();
         let mut hash_content_map: HashMap<String, String> = HashMap::new();
         for i in 0..100 {
             let content = format!("test {i}");
             let buf = content.clone().into_bytes();
-            let (_, hash) = push_to_packs(buf, &cnt).unwrap();
+            let (_, hash) = insert(buf, &cnt).unwrap();
             hash_content_map.insert(hash, content);
         }
 
@@ -399,20 +399,20 @@ mod tests {
         assert_eq!(info.count.packs, 100);
 
         for (hash, content) in hash_content_map {
-            let obj = pull_from_packs(&hash, &cnt).unwrap().unwrap();
+            let obj = extract(&hash, &cnt).unwrap().unwrap();
             assert_eq!(String::from_utf8(obj.to_bytes().unwrap()).unwrap(), content);
         }
     }
 
     #[test]
-    fn io_packs_pull_from_any_single() {
+    fn io_packs_extract_from_any_single() {
         let cnt = gen_tmp_container(6400).lock().unwrap();
 
         let mut hash_content_map: HashMap<String, String> = HashMap::new();
         for i in 0..100 {
             let content = format!("test {i}");
             let buf = content.clone().into_bytes();
-            let (_, hash) = push_to_packs(buf, &cnt).unwrap();
+            let (_, hash) = insert(buf, &cnt).unwrap();
             hash_content_map.insert(hash, content);
         }
 
@@ -423,20 +423,20 @@ mod tests {
         assert_eq!(info.count.packs, 100);
 
         for (hash, content) in hash_content_map {
-            let obj = pull_from_packs(&hash, &cnt).unwrap().unwrap();
+            let obj = extract(&hash, &cnt).unwrap().unwrap();
             assert_eq!(String::from_utf8(obj.to_bytes().unwrap()).unwrap(), content);
         }
     }
 
     #[test]
-    fn io_packs_pull_from_multi() {
+    fn io_packs_extract_many() {
         let cnt = gen_tmp_container(64).lock().unwrap();
 
         let mut hash_content_map: HashMap<String, String> = HashMap::new();
         for i in 0..100 {
             let content = format!("test {i}");
             let buf = content.clone().into_bytes();
-            let (_, hash) = push_to_packs(buf, &cnt).unwrap();
+            let (_, hash) = insert(buf, &cnt).unwrap();
             hash_content_map.insert(hash, content);
         }
 
@@ -454,7 +454,7 @@ mod tests {
         hashkeys
             .push("7e76df6ac7d08a837f7212e765edd07333c8159ffa0484bc26394e7ffd898817".to_string());
 
-        let objs = multi_pull_from_packs(&hashkeys, &cnt).unwrap();
+        let objs = extract_many(&hashkeys, &cnt).unwrap();
         assert_eq!(objs.len() + 2, hashkeys.len());
 
         for obj in objs {

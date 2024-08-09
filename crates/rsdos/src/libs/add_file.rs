@@ -1,11 +1,12 @@
-use crate::{
-    io_loose::push_to_loose, io_packs::push_to_packs, Container
-};
 use anyhow::Context;
 use std::{
     fs::{self},
     path::PathBuf,
 };
+
+use crate::Container;
+use crate::io_loose::insert as loose_insert;
+use crate::io_packs::insert as packs_insert;
 
 pub enum StoreType {
     Loose,
@@ -24,8 +25,8 @@ pub fn add_file(
     let expected_size = stat.len();
 
     let (bytes_streamd, hash_hex) = match target {
-        StoreType::Loose => push_to_loose(file, cnt)?,
-        StoreType::Packs => push_to_packs(file.clone(), cnt)?,
+        StoreType::Loose => loose_insert(file, cnt)?,
+        StoreType::Packs => packs_insert(file.clone(), cnt)?,
     };
 
     anyhow::ensure!(

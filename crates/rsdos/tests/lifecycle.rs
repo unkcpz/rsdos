@@ -72,7 +72,7 @@ fn lifecycle_add_ten_diff_objs_to_packs() -> anyhow::Result<()> {
     //
     for (hash_hex, expected_content) in orig_objs {
         // find content from packs file
-        let obj = rsdos::pull_from_packs(&hash_hex, &cnt)?.unwrap();
+        let obj = rsdos::io_packs::extract(&hash_hex, &cnt)?.unwrap();
         assert_eq!(
             String::from_utf8(obj.to_bytes().unwrap()).unwrap(),
             expected_content
@@ -108,7 +108,7 @@ fn lifecycle_add_ten_same_objs_to_packs() -> anyhow::Result<()> {
     //
     for (hash_hex, expected_content) in orig_objs {
         // find content from packs file
-        let obj = rsdos::pull_from_packs(&hash_hex, &cnt)?.unwrap();
+        let obj = rsdos::io_packs::extract(&hash_hex, &cnt)?.unwrap();
         assert_eq!(
             String::from_utf8(obj.to_bytes().unwrap()).unwrap(),
             expected_content
@@ -162,7 +162,7 @@ fn lifecycle_add_to_packs_beyond_one_pack() -> anyhow::Result<()> {
     // let out = fs::read_to_string(cnt.packs()?.join("0"))?;
     //
     for (hash_hex, expected_content) in orig_objs {
-        let obj = rsdos::pull_from_packs(&hash_hex, &cnt)?.unwrap();
+        let obj = rsdos::io_packs::extract(&hash_hex, &cnt)?.unwrap();
         assert_eq!(
             String::from_utf8(obj.to_bytes().unwrap()).unwrap(),
             expected_content
