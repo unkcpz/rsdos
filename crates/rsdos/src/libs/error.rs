@@ -27,7 +27,7 @@ pub enum Error {
     #[error("Could not obtain the container directory at {}", .path.display())]
     UnableObtainDir { path: PathBuf },
     #[error("Uninitialized container directory at {}", .path.display())]
-    Uninitialized {path: PathBuf},
+    Uninitialized { path: PathBuf },
     #[error("Could not read the container config file at {}", .path.display())]
     ConfigFileRead {
         source: std::io::Error,
@@ -38,8 +38,7 @@ pub enum Error {
 
     // io modele errors
     #[error("Unexpected size in copy: expect {} got {}", .expected, .got)]
-    UnexpectedCopySize{
-        expected: u64,
-        got: u64
-    },
+    UnexpectedCopySize { expected: u64, got: u64 },
+    #[error("Unable to copy by chunk")]
+    ChunkCopyError { source: std::io::Error },
 }

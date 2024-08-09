@@ -1,10 +1,10 @@
+use crate::Error;
 use anyhow::Context;
 use bytes::Buf;
 use sha2::Digest;
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::{fs, usize};
-use crate::Error;
 
 pub struct HashWriter<'a, W, H> {
     pub writer: W,
@@ -42,7 +42,7 @@ pub fn copy_by_chunk<R, W>(
     reader: &mut R,
     writer: &mut W,
     chunk_size: usize,
-) -> anyhow::Result<usize>
+) -> Result<usize, std::io::Error>
 where
     R: Read,
     W: Write,
@@ -51,18 +51,16 @@ where
     let mut total_bytes_copied = 0;
 
     loop {
-        let bytes_read = reader.read(&mut buf[..]).with_context(|| "read to buf")?;
+        let bytes_read = reader.read(&mut buf[..])?;
         // EOF if bytes_read == 0, then stop and flush
         if bytes_read == 0 {
             break;
         }
         total_bytes_copied += bytes_read;
-        writer
-            .write_all(&buf[..bytes_read])
-            .with_context(|| "write to writer")?;
+        writer.write_all(&buf[..bytes_read])?;
     }
 
-    writer.flush().with_context(|| "flush to buff writer")?;
+    writer.flush()?;
     Ok(total_bytes_copied)
 }
 
@@ -94,4 +92,3 @@ pub struct Object<R> {
     pub expected_size: usize,
     pub hashkey: String,
 }
-

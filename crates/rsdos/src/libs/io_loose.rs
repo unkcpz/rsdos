@@ -1,7 +1,6 @@
-use anyhow::Context;
 use sha2::{Digest, Sha256};
 use std::fs;
-use std::io::{BufWriter, Read};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use crate::io::{copy_by_chunk, ByteString, HashWriter, ReaderMaker};
@@ -59,15 +58,12 @@ pub fn pull_from_loose(hashkey: &str, cnt: &Container) -> Result<Option<LObject>
     }
 }
 
-pub fn push_to_loose(source: &impl ReaderMaker, cnt: &Container) -> anyhow::Result<(u64, String)> {
+pub fn push_to_loose(source: &impl ReaderMaker, cnt: &Container) -> Result<(u64, String), Error> {
     // <cnt_path>/sandbox/<uuid> as dst
     let dst = format!("{}.tmp", uuid::Uuid::new_v4());
     let dst = cnt.sandbox()?.join(dst);
-    let writer =
-        fs::File::create(&dst).with_context(|| format!("open {} for write", dst.display()))?;
-    let mut writer = BufWriter::new(writer); // XXX: ??? is this convert necessary??
+    let mut writer = fs::File::create(&dst)?;
 
-    // TODO: hasher can be passed as ref and using reset to avoid re-alloc in heap
     let mut hasher = Sha256::new();
     let mut hwriter = HashWriter::new(&mut writer, &mut hasher);
 
@@ -76,10 +72,14 @@ pub fn push_to_loose(source: &impl ReaderMaker, cnt: &Container) -> anyhow::Resu
     //
     // Note: using chunk copy is a slightly slow than direct copy but since I don't know the size,
     // have to do the pre-allocate with specific chunk size.
-    let chunk_size = 524_288; // 512 MiB TODO: make it configurable??
+    // NOTE: this chunk_size is the upbound of the buf, which in order to control the size of
+    // memory usage when coping large file. 512 KiB is way larger then the default buffer size in rust
+    // (4KiB). Large buffer may increase change of loosing data.
+    let chunk_size = 524_288; // 512 KiB TODO: make it configurable??
                               //
     let mut stream = source.make_reader()?;
-    let bytes_copied = copy_by_chunk(&mut stream, &mut hwriter, chunk_size)?;
+    let bytes_copied = copy_by_chunk(&mut stream, &mut hwriter, chunk_size)
+        .map_err(|err| Error::ChunkCopyError { source: err })?;
     let hash = hasher.finalize();
     let hash_hex = hex::encode(hash);
 
@@ -89,8 +89,7 @@ pub fn push_to_loose(source: &impl ReaderMaker, cnt: &Container) -> anyhow::Resu
 
     // avoid move if duplicate exist to reduce overhead
     if !loose_dst.exists() {
-        fs::rename(&dst, &loose_dst)
-            .with_context(|| format!("move from {} to {}", dst.display(), loose_dst.display()))?;
+        fs::rename(&dst, &loose_dst)?;
     }
 
     Ok((bytes_copied as u64, hash_hex))
