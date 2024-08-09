@@ -8,6 +8,10 @@ pub mod db;
 #[path = "libs/utils.rs"]
 pub mod utils;
 
+#[path = "libs/error.rs"]
+pub mod error;
+pub use crate::error::Error;
+
 #[path = "libs/add_file.rs"]
 pub mod add_file;
 pub use crate::add_file::add_file;

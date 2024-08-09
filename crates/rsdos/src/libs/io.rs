@@ -4,18 +4,7 @@ use sha2::Digest;
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::{fs, usize};
-
-#[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
-pub enum Error {
-    #[error("Could not proceed std io operation")]
-    StdIO(#[from] std::io::Error),
-    #[error("Unexpected size in copy: expect {} got {}", .expected, .got)]
-    UnexpectedCopySize{
-        expected: u64,
-        got: u64
-    },
-}
+use crate::Error;
 
 pub struct HashWriter<'a, W, H> {
     pub writer: W,

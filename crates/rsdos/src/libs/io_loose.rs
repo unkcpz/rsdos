@@ -6,9 +6,7 @@ use std::path::{Path, PathBuf};
 
 use crate::io::{copy_by_chunk, ByteString, HashWriter, ReaderMaker};
 use crate::Container;
-use crate::utils::Error;
-
-use crate::io::Error as IOError;
+use crate::Error;
 
 pub struct LObject {
     pub id: String,
@@ -26,14 +24,14 @@ impl LObject {
     }
 
     #[allow(dead_code)]
-    fn to_bytes(&self) -> Result<ByteString, IOError> {
+    fn to_bytes(&self) -> Result<ByteString, Error> {
         let mut rdr = self.make_reader()?;
         let mut buf = vec![];
         let n = std::io::copy(&mut rdr, &mut buf)?;
         if n == self.expected_size {
             Ok(buf)
         } else {
-            Err(IOError::UnexpectedCopySize {
+            Err(Error::UnexpectedCopySize {
                 expected: self.expected_size,
                 got: n,
             })
@@ -42,7 +40,7 @@ impl LObject {
 }
 
 impl ReaderMaker for LObject {
-    fn make_reader(&self) -> Result<impl Read, IOError> {
+    fn make_reader(&self) -> Result<impl Read, Error> {
         Ok(fs::OpenOptions::new().read(true).open(&self.loc)?)
     }
 }

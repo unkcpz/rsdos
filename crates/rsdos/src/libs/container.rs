@@ -2,6 +2,7 @@ use anyhow::Context;
 use serde_json::to_string_pretty;
 
 use crate::utils;
+use crate::Error;
 use crate::{config::Config, db, utils::Dir};
 use core::panic;
 use std::{
@@ -21,26 +22,6 @@ const LOOSE: &str = "loose";
 const PACKS: &str = "packs";
 const DUPLICATES: &str = "duplicates";
 const SANDBOX: &str = "sandbox";
-
-#[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
-pub enum Error {
-    #[error("std::io error")]
-    StdIO(#[from] std::io::Error),
-    #[error("Refusing to initialize in non-empty directory as '{}'", .path.display())]
-    DirectoryNotEmpty { path: PathBuf },
-    #[error("Could not obtain the container directory at {}", .path.display())]
-    UnableObtainDir { path: PathBuf },
-    #[error("Uninitialized container directory at {}", .path.display())]
-    Uninitialized {path: PathBuf},
-    #[error("Could not read the container config file at {}", .path.display())]
-    ConfigFileRead {
-        source: std::io::Error,
-        path: PathBuf,
-    },
-    #[error("Could not reach {}: {cause}", .path.display())]
-    StoreComponentError { path: PathBuf, cause: String },
-}
 
 impl Container {
     pub fn new<P: AsRef<Path>>(path: P) -> Container {
