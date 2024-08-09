@@ -5,11 +5,6 @@ use std::io::{self, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::{fs, usize};
 
-pub struct Object<R> {
-    pub reader: R,
-    pub expected_size: usize,
-    pub hashkey: String,
-}
 
 pub struct HashWriter<'a, W, H> {
     pub writer: W,
@@ -43,11 +38,15 @@ where
 }
 
 /// Copy by chunk (``chunk_size`` in unit bytes) and return the size of content that copied
-pub fn copy_by_chunk<R: Read, W: Write>(
+pub fn copy_by_chunk<R, W>(
     reader: &mut R,
     writer: &mut W,
     chunk_size: usize,
-) -> anyhow::Result<usize> {
+) -> anyhow::Result<usize>
+where
+    R: Read,
+    W: Write,
+{
     let mut buf = vec![0u8; chunk_size];
     let mut total_bytes_copied = 0;
 
@@ -77,7 +76,7 @@ impl ReaderMaker for PathBuf {
             .read(true)
             .open(self)
             .unwrap_or_else(|_| panic!("open {}", self.display()));
-        BufReader::new(f)
+        f
     }
 }
 
@@ -89,3 +88,10 @@ impl ReaderMaker for ByteString {
         self.reader()
     }
 }
+
+pub struct Object<R> {
+    pub reader: R,
+    pub expected_size: usize,
+    pub hashkey: String,
+}
+

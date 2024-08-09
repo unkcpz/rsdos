@@ -4,8 +4,10 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, thiserror::Error)]
 #[allow(missing_docs)]
 pub enum Error {
-    #[error("Could not obtain the current directory")]
-    CurrentDir(#[from] std::io::Error),
+    #[error("Could not communicate to the container")]
+    ContainerError(#[from] crate::container::Error),
+    #[error("Could not proceed io operation")]
+    Io(#[from] std::io::Error),
     #[error("Could not open data at '{}'", .path.display())]
     IoOpen {
         source: std::io::Error,

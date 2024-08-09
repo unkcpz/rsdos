@@ -1,38 +1,57 @@
-use std::io::{BufRead, BufReader, BufWriter, Read};
-use std::{fs, usize};
 use anyhow::Context;
 use sha2::{Digest, Sha256};
+use std::io::{self, BufRead, BufReader, BufWriter, Read};
+use std::path::{Path, PathBuf};
+use std::{fs, usize};
 
-use crate::io::{copy_by_chunk, HashWriter, ReaderMaker};
-use crate::{Container, Object};
+use crate::io::{copy_by_chunk, ByteStr, ByteString, HashWriter, ReaderMaker};
+use crate::{utils, Container, Object};
 
-pub fn pull_from_loose(
-    obj_hash: &str,
-    cnt: &Container,
-) -> anyhow::Result<Option<Object<impl BufRead>>> {
-    let obj = cnt
+pub struct LObject {
+    pub id: String,
+    pub loc: PathBuf,
+    pub expected_size: u64, // used for validate write operation
+}
+
+impl LObject {
+    fn new<P: AsRef<Path>>(id: &str, loc: P, expected_size: u64) -> Self {
+        Self {
+            id: id.to_string(),
+            loc: loc.as_ref().to_path_buf(),
+            expected_size,
+        }
+    }
+
+    fn to_bytes(&self) -> ByteString {
+        let mut rdr = self.make_reader();
+        let mut buf = vec![];
+        let n = std::io::copy(&mut rdr, &mut buf).unwrap();
+        assert_eq!(n, self.expected_size);
+        buf
+    }
+}
+
+impl ReaderMaker for LObject {
+    fn make_reader(&self) -> impl Read {
+        fs::OpenOptions::new().read(true).open(&self.loc).unwrap()
+    }
+}
+
+pub fn pull_from_loose(hashkey: &str, cnt: &Container) -> Result<Option<LObject>, utils::Error> {
+    let loc = cnt
         .loose()?
-        .join(format!("{}/{}", &obj_hash[..2], &obj_hash[2..]));
-    if obj.exists() {
-        let f = fs::File::open(&obj).with_context(|| format!("cannot open {}", obj.display()))?;
+        .join(format!("{}/{}", &hashkey[..2], &hashkey[2..]));
+    if loc.exists() {
+        let f = fs::File::open(&loc)?;
         let expected_size = f.metadata()?.len();
-        let z = BufReader::new(f);
-
-        let obj = Object {
-            reader: z.take(expected_size),
-            expected_size: expected_size as usize,
-            hashkey: obj_hash.to_string(),
-        };
+        let obj = LObject::new(hashkey, loc, expected_size);
         Ok(Some(obj))
     } else {
         Ok(None)
     }
 }
 
-pub fn push_to_loose(source: impl ReaderMaker, cnt: &Container) -> anyhow::Result<(u64, String)>
-{
-    let chunk_size = 524_288; // 512 MiB TODO: make it configurable??
-
+pub fn push_to_loose(source: impl ReaderMaker, cnt: &Container) -> anyhow::Result<(u64, String)> {
     // <cnt_path>/sandbox/<uuid> as dst
     let dst = format!("{}.tmp", uuid::Uuid::new_v4());
     let dst = cnt.sandbox()?.join(dst);
@@ -49,6 +68,8 @@ pub fn push_to_loose(source: impl ReaderMaker, cnt: &Container) -> anyhow::Resul
     //
     // Note: using chunk copy is a slightly slow than direct copy but since I don't know the size,
     // have to do the pre-allocate with specific chunk size.
+    let chunk_size = 524_288; // 512 MiB TODO: make it configurable??
+                              //
     let mut stream = source.make_reader();
     let bytes_copied = copy_by_chunk(&mut stream, &mut hwriter, chunk_size)?;
     let hash = hasher.finalize();
@@ -65,4 +86,34 @@ pub fn push_to_loose(source: impl ReaderMaker, cnt: &Container) -> anyhow::Resul
     }
 
     Ok((bytes_copied as u64, hash_hex))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        io::ByteString,
+        stat,
+        test_utils::{gen_tmp_container, PACK_TARGET_SIZE},
+    };
+
+    use super::*;
+
+    #[test]
+    fn io_loose_insert_and_extract() {
+        let cnt = gen_tmp_container(PACK_TARGET_SIZE).lock().unwrap();
+
+        let bstr: ByteString = b"test 0".to_vec();
+        let (_, hashkey) = push_to_loose(bstr, &cnt).unwrap();
+
+        // check packs has `0` and audit has only one pack
+        // check content of 0 pack is `test 0`
+        let info = stat(&cnt).unwrap();
+        assert_eq!(info.count.loose, 1);
+
+        let obj = pull_from_loose(&hashkey, &cnt).unwrap().unwrap();
+        assert_eq!(
+            String::from_utf8(obj.to_bytes()),
+            String::from_utf8(b"test 0".to_vec())
+        );
+    }
 }

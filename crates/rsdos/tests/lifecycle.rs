@@ -55,27 +55,6 @@ fn lifecycle_add_ten_same_objs_to_loose() {
 }
 
 #[test]
-fn lifecycle_add_one_to_loose_and_read() {
-    let cnt = gen_tmp_container().lock().unwrap();
-
-    // add 10 samples to loose
-    let mut tf = NamedTempFile::new().unwrap();
-    write!(tf, "test x").unwrap();
-
-    let fp = tf.into_temp_path();
-    let (hash_hex, _, _) = rsdos::add_file(&fp.to_path_buf(), &cnt, &StoreType::Loose)
-        .expect("unable to add file {i}");
-
-    // get obj by hash_hex
-    let obj = rsdos::pull_from_loose(&hash_hex, &cnt).expect("get object from hash");
-
-    let mut content = String::new();
-    obj.unwrap().reader.read_to_string(&mut content).unwrap();
-
-    assert_eq!(content, "test x".to_string());
-}
-
-#[test]
 fn lifecycle_add_ten_diff_objs_to_packs() -> anyhow::Result<()> {
     let cnt = gen_tmp_container().lock().unwrap();
 

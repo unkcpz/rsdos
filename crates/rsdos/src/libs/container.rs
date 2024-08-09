@@ -1,4 +1,4 @@
-use anyhow::{Context, Ok};
+use anyhow::Context;
 use serde_json::to_string_pretty;
 
 use crate::utils;
@@ -34,6 +34,8 @@ pub enum Error {
         source: std::io::Error,
         path: PathBuf,
     },
+    #[error("Could not reach loose store at {cause}")]
+    LooseStoreError { cause: String },
 }
 
 impl Container {
@@ -46,11 +48,18 @@ impl Container {
     /// This will remove everything in the container folder. Use carefully!
     ///
     /// # Panics
-    /// 
+    ///
     /// If the `remove_dir_all` or `create_dir_all` failed it will panic.
     pub fn reset(&self) {
-        fs::remove_dir_all(&self.path).unwrap_or_else(|err| panic!("not able to purge {}: {}", self.path.display(), err));
-        fs::create_dir_all(&self.path).unwrap_or_else(|err| panic!("not able to create after purge {}: {}", self.path.display(), err));
+        fs::remove_dir_all(&self.path)
+            .unwrap_or_else(|err| panic!("not able to purge {}: {}", self.path.display(), err));
+        fs::create_dir_all(&self.path).unwrap_or_else(|err| {
+            panic!(
+                "not able to create after purge {}: {}",
+                self.path.display(),
+                err
+            )
+        });
     }
 
     pub fn initialize(&self, config: &Config) -> anyhow::Result<&Self> {
@@ -128,14 +137,19 @@ impl Container {
         Ok(self)
     }
 
-    pub fn loose(&self) -> anyhow::Result<PathBuf> {
+    pub fn loose(&self) -> Result<PathBuf, Error> {
         let path = Dir(&self.path).at_path(LOOSE);
         if !path.exists() {
-            anyhow::bail!("{} not exist", path.display());
+            // anyhow::bail!("{} not exist", path.display());
+            return Err(Error::LooseStoreError {
+                cause: format!("{} should exist", path.display()),
+            });
         }
 
         if !path.is_dir() {
-            anyhow::bail!("{} is not a directory", path.display());
+            return Err(Error::LooseStoreError {
+                cause: format!("{} should be a directory", path.display()),
+            });
         }
 
         Ok(path)
@@ -214,9 +228,10 @@ mod tests {
         let cnt = gen_tmp_container(PACK_TARGET_SIZE).lock().unwrap();
 
         let err = cnt.initialize(&Config::new(4 * 1024 * 1024)).unwrap_err();
-        assert!(err
-            .to_string()
-            .contains("already initialized"), "got err: {err}");
+        assert!(
+            err.to_string().contains("already initialized"),
+            "got err: {err}"
+        );
     }
 
     #[test]
@@ -226,8 +241,10 @@ mod tests {
         let _ = fs::File::create(cnt.path.join("unexpected"));
 
         let err = cnt.initialize(&Config::new(4 * 1024 * 1024)).unwrap_err();
-        assert!(err
-            .to_string()
-            .contains("Refusing to initialize in non-empty directory"), "got err: {err}");
+        assert!(
+            err.to_string()
+                .contains("Refusing to initialize in non-empty directory"),
+            "got err: {err}"
+        );
     }
 }
