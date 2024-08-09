@@ -1,4 +1,3 @@
-use anyhow::Context;
 use rusqlite::{params, params_from_iter, Connection};
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -134,16 +133,16 @@ pub fn multi_pull_from_packs(hashkeys: &[String], cnt: &Container) -> Result<Vec
     Ok(objs)
 }
 
-pub fn push_to_packs(source: impl ReaderMaker, cnt: &Container) -> anyhow::Result<(u64, String)> {
+pub fn push_to_packs(source: impl ReaderMaker, cnt: &Container) -> Result<(u64, String), Error> {
     let (bytes_copied, hash_hex) = multi_push_to_packs(vec![source], cnt)?
         .first()
         .map(|(n, hash)| (*n, hash.clone()))
-        .expect("can't find 1st source");
+        .unwrap();
 
     Ok((bytes_copied, hash_hex))
 }
 
-fn find_current_pack_id(packs: &PathBuf, pack_size_target: u64) -> anyhow::Result<u64> {
+fn find_current_pack_id(packs: &PathBuf, pack_size_target: u64) -> Result<u64, Error> {
     // make sure there is a pack if not create 0
     if Dir(packs).is_empty()? {
         fs::File::create(packs.join("0"))?;
@@ -153,7 +152,12 @@ fn find_current_pack_id(packs: &PathBuf, pack_size_target: u64) -> anyhow::Resul
         let path = entry?.path();
         if let Some(filename) = path.file_name() {
             let n = filename.to_string_lossy();
-            let n = n.parse()?;
+            let n = n
+                .parse::<u64>()
+                .map_err(|err| Error::ParsePackFilenameError {
+                    source: err,
+                    n: n.to_string(),
+                })?;
             current_pack_id = std::cmp::max(current_pack_id, n);
         }
     }
@@ -169,13 +173,16 @@ fn find_current_pack_id(packs: &PathBuf, pack_size_target: u64) -> anyhow::Resul
             .write(true)
             .truncate(true)
             .open(&p)
-            .with_context(|| format!("create {}", &p.display()))?;
+            .map_err(|err| Error::IoOpen {
+                source: err,
+                path: p,
+            })?;
     }
 
     Ok(current_pack_id)
 }
 
-pub fn multi_push_to_packs<I>(sources: I, cnt: &Container) -> anyhow::Result<Vec<(u64, String)>>
+pub fn multi_push_to_packs<I>(sources: I, cnt: &Container) -> Result<Vec<(u64, String)>, Error>
 where
     I: IntoIterator,
     I::Item: ReaderMaker,
@@ -220,7 +227,7 @@ where
         for rmaker in sources.by_ref() {
             // NOTE: Using small chunk_size can be fast in terms of benchmark.
             // Ideally should accept a hint for buffer size (loose -> packs)
-            // 64 MiB from legacy dos  TODO: make it configurable??
+            // 64 KiB from legacy dos  TODO: make it configurable??
             let chunk_size = 65_536;
 
             // XXX: for if need to do the valitation for the hash, the idea is to having an object
@@ -247,7 +254,7 @@ where
                 bytes_copied as u64,
                 cwp_id,
             ])
-            .with_context(|| "insert to db")?;
+            .map_err(|err| Error::SQLiteInsertError { source: err })?;
             offset += bytes_copied as u64;
 
             nbytes_hash.push((bytes_copied as u64, hash_hex));
@@ -371,7 +378,7 @@ mod tests {
         let packs = cnt.packs().unwrap();
         fs::File::create(packs.join("0")).unwrap();
         let mut p1 = fs::File::create(packs.join("1")).unwrap();
-        let bytes_holder = vec![0u8; pack_target_size as usize];
+        let bytes_holder = vec![0u8; usize::try_from(pack_target_size).unwrap()];
         p1.write_all(&bytes_holder).unwrap();
 
         // more bytes

@@ -29,8 +29,7 @@ pub enum Error {
     #[error("Uninitialized container directory at {}", .path.display())]
     Uninitialized { path: PathBuf },
     #[error("Could not read the container config file at {}", .path.display())]
-    ConfigFileRead {
-        source: std::io::Error,
+    ConfigFileError {
         path: PathBuf,
     },
     #[error("Could not reach {}: {cause}", .path.display())]
@@ -41,10 +40,14 @@ pub enum Error {
     UnexpectedCopySize { expected: u64, got: u64 },
     #[error("Unable to copy by chunk")]
     ChunkCopyError { source: std::io::Error },
+    #[error("Unable to parse pack file name {}", .n)]
+    ParsePackFilenameError { source: std::num::ParseIntError, n: String},
 
     // db module erors
     #[error("rusqlite error")]
     RusqliteError(#[from] rusqlite::Error),
     #[error("Could not select from DB")]
     SQLiteSelectError { source: rusqlite::Error },
+    #[error("Could not insert to DB")]
+    SQLiteInsertError { source: rusqlite::Error },
 }

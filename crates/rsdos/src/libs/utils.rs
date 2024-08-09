@@ -1,41 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
-pub enum Error {
-    #[error("std::io error")]
-    StdIO(#[from] std::io::Error),
-    #[error("Could not open data at '{}'", .path.display())]
-    IoOpen {
-        source: std::io::Error,
-        path: PathBuf,
-    },
-    #[error("Could not write data at '{}'", .path.display())]
-    IoWrite {
-        source: std::io::Error,
-        path: PathBuf,
-    },
-    #[error("Could not create directory at '{}'", .path.display())]
-    CreateDirectory {
-        source: std::io::Error,
-        path: PathBuf,
-    },
-    // Container erors
-    #[error("Refusing to initialize in non-empty directory as '{}'", .path.display())]
-    DirectoryNotEmpty { path: PathBuf },
-    #[error("Could not obtain the container directory at {}", .path.display())]
-    UnableObtainDir { path: PathBuf },
-    #[error("Uninitialized container directory at {}", .path.display())]
-    Uninitialized {path: PathBuf},
-    #[error("Could not read the container config file at {}", .path.display())]
-    ConfigFileRead {
-        source: std::io::Error,
-        path: PathBuf,
-    },
-    #[error("Could not reach {}: {cause}", .path.display())]
-    StoreComponentError { path: PathBuf, cause: String },
-}
+use crate::Error;
+
 
 pub fn create_dir(p: &Path) -> Result<(), Error> {
     fs::create_dir_all(p).map_err(|e| Error::CreateDirectory {

@@ -1,7 +1,6 @@
 use anyhow::Context;
 use serde_json::to_string_pretty;
 
-use crate::utils;
 use crate::Error;
 use crate::{config::Config, db, utils::Dir};
 use core::panic;
@@ -53,7 +52,7 @@ impl Container {
             let config = self.path.join(CONFIG_FILE);
             fs::File::create(config.clone())?
                 .write_all(json_string.as_bytes())
-                .map_err(|err| utils::Error::IoWrite {
+                .map_err(|err| Error::IoWrite {
                     source: err,
                     path: config.clone(),
                 })?;
@@ -77,10 +76,11 @@ impl Container {
         Ok(self)
     }
 
-    pub fn config(&self) -> anyhow::Result<Config> {
-        let config = fs::read_to_string(self.config_file()?)?;
-        let config =
-            serde_json::from_str(&config).with_context(|| format!("parse config from {config}"))?;
+    pub fn config(&self) -> Result<Config, Error> {
+        let config_path = self.config_file()?;
+        let config = fs::read_to_string(&config_path)?;
+        let config = serde_json::from_str(&config)
+            .map_err(|_| Error::ConfigFileError { path: config_path })?;
 
         Ok(config)
     }
@@ -88,13 +88,16 @@ impl Container {
     /// validate if it is a valid container (means properly initialized from empty dir), return itself if valid.
     pub fn validate(&self) -> Result<&Self, Error> {
         if !self.path.exists() || Dir(&self.path).is_empty()? {
-            return Err(Error::Uninitialized { path: self.path.clone() })
+            return Err(Error::Uninitialized {
+                path: self.path.clone(),
+            });
         }
 
         if !self.path.is_dir() {
-            return Err(Error::UnableObtainDir { path: self.path.clone() })
+            return Err(Error::UnableObtainDir {
+                path: self.path.clone(),
+            });
         }
-
 
         for entry in self.path.read_dir()? {
             let path = entry?.path();
@@ -102,12 +105,18 @@ impl Container {
                 match filename.to_string_lossy().as_ref() {
                     LOOSE | PACKS | DUPLICATES | SANDBOX => {
                         if !path.is_dir() {
-                            return Err(Error::StoreComponentError { path: self.path.clone(), cause: "not a dir".to_string() })
+                            return Err(Error::StoreComponentError {
+                                path: self.path.clone(),
+                                cause: "not a dir".to_string(),
+                            });
                         }
                     }
                     CONFIG_FILE | PACKS_DB => {
                         if !path.is_file() {
-                            return Err(Error::StoreComponentError { path: self.path.clone(), cause: "not a file".to_string() })
+                            return Err(Error::StoreComponentError {
+                                path: self.path.clone(),
+                                cause: "not a file".to_string(),
+                            });
                         }
                     }
                     // _ => unreachable!("unknow path {}", filename.to_string_lossy()),
@@ -121,8 +130,11 @@ impl Container {
 
     pub fn loose(&self) -> Result<PathBuf, Error> {
         let path = Dir(&self.path).at_path(LOOSE);
-        if !path.exists() || !path.is_dir(){
-            return Err(Error::StoreComponentError { path: self.path.clone(), cause: "should be a dir".to_string() })
+        if !path.exists() || !path.is_dir() {
+            return Err(Error::StoreComponentError {
+                path: self.path.clone(),
+                cause: "should be a dir".to_string(),
+            });
         }
 
         Ok(path)
@@ -130,8 +142,11 @@ impl Container {
 
     pub fn sandbox(&self) -> Result<PathBuf, Error> {
         let path = Dir(&self.path).at_path(SANDBOX);
-        if !path.exists() || !path.is_dir(){
-            return Err(Error::StoreComponentError { path: self.path.clone(), cause: "should be a dir".to_string() })
+        if !path.exists() || !path.is_dir() {
+            return Err(Error::StoreComponentError {
+                path: self.path.clone(),
+                cause: "should be a dir".to_string(),
+            });
         }
 
         Ok(path)
@@ -139,8 +154,11 @@ impl Container {
 
     pub fn packs(&self) -> Result<PathBuf, Error> {
         let path = Dir(&self.path).at_path(PACKS);
-        if !path.exists() || !path.is_dir(){
-            return Err(Error::StoreComponentError { path: self.path.clone(), cause: "should be a dir".to_string() })
+        if !path.exists() || !path.is_dir() {
+            return Err(Error::StoreComponentError {
+                path: self.path.clone(),
+                cause: "should be a dir".to_string(),
+            });
         }
 
         Ok(path)
@@ -148,8 +166,11 @@ impl Container {
 
     pub fn packs_db(&self) -> Result<PathBuf, Error> {
         let path = Dir(&self.path).at_path(PACKS_DB);
-        if !path.exists() || !path.is_file(){
-            return Err(Error::StoreComponentError { path: self.path.clone(), cause: "should be a file".to_string() })
+        if !path.exists() || !path.is_file() {
+            return Err(Error::StoreComponentError {
+                path: self.path.clone(),
+                cause: "should be a file".to_string(),
+            });
         }
 
         Ok(path)
@@ -157,8 +178,11 @@ impl Container {
 
     pub fn config_file(&self) -> Result<PathBuf, Error> {
         let path = Dir(&self.path).at_path(CONFIG_FILE);
-        if !path.exists() || !path.is_file(){
-            return Err(Error::StoreComponentError { path: self.path.clone(), cause: "should be a file".to_string() })
+        if !path.exists() || !path.is_file() {
+            return Err(Error::StoreComponentError {
+                path: self.path.clone(),
+                cause: "should be a file".to_string(),
+            });
         }
 
         Ok(path)
