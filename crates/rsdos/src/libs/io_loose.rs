@@ -61,7 +61,7 @@ pub fn pull_from_loose(hashkey: &str, cnt: &Container) -> Result<Option<LObject>
     }
 }
 
-pub fn push_to_loose(source: impl ReaderMaker, cnt: &Container) -> anyhow::Result<(u64, String)> {
+pub fn push_to_loose(source: &impl ReaderMaker, cnt: &Container) -> anyhow::Result<(u64, String)> {
     // <cnt_path>/sandbox/<uuid> as dst
     let dst = format!("{}.tmp", uuid::Uuid::new_v4());
     let dst = cnt.sandbox()?.join(dst);
@@ -113,7 +113,7 @@ mod tests {
         let cnt = gen_tmp_container(PACK_TARGET_SIZE).lock().unwrap();
 
         let bstr: ByteString = b"test 0".to_vec();
-        let (_, hashkey) = push_to_loose(bstr, &cnt).unwrap();
+        let (_, hashkey) = push_to_loose(&bstr, &cnt).unwrap();
 
         // check packs has `0` and audit has only one pack
         // check content of 0 pack is `test 0`

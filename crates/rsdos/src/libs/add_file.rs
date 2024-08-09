@@ -24,7 +24,7 @@ pub fn add_file(
     let expected_size = stat.len();
 
     let (bytes_streamd, hash_hex) = match target {
-        StoreType::Loose => push_to_loose(file.clone(), cnt)?,
+        StoreType::Loose => push_to_loose(file, cnt)?,
         StoreType::Packs => push_to_packs(file.clone(), cnt)?,
     };
 
