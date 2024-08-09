@@ -86,8 +86,3 @@ impl ReaderMaker for ByteString {
     }
 }
 
-pub struct Object<R> {
-    pub reader: R,
-    pub expected_size: usize,
-    pub hashkey: String,
-}

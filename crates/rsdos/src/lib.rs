@@ -22,7 +22,6 @@ pub use crate::status::stat;
 
 #[path = "libs/io.rs"]
 pub mod io;
-pub use crate::io::Object;
 
 #[path = "libs/io_packs.rs"]
 pub mod io_packs;
