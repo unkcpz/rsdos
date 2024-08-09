@@ -43,7 +43,7 @@ impl ReaderMaker for LObject {
         Ok(fs::OpenOptions::new().read(true).open(&self.loc)?)
     }
 }
-pub fn insert(source: &impl ReaderMaker, cnt: &Container) -> Result<(u64, String), Error> {
+pub fn insert<T>(source: T, cnt: &Container) -> Result<(u64, String), Error> where T: ReaderMaker{
     // <cnt_path>/sandbox/<uuid> as dst
     let dst = format!("{}.tmp", uuid::Uuid::new_v4());
     let dst = cnt.sandbox()?.join(dst);
@@ -109,7 +109,7 @@ mod tests {
         let cnt = gen_tmp_container(PACK_TARGET_SIZE).lock().unwrap();
 
         let bstr: ByteString = b"test 0".to_vec();
-        let (_, hashkey) = insert(&bstr, &cnt).unwrap();
+        let (_, hashkey) = insert(bstr, &cnt).unwrap();
 
         // check packs has `0` and audit has only one pack
         // check content of 0 pack is `test 0`

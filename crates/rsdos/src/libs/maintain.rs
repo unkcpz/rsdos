@@ -69,7 +69,7 @@ mod tests {
         for i in 0..n {
             let content = format!("test {i:03}"); // 8 bytes each
             let buf = content.clone().into_bytes();
-            let (_, hash) = loose_insert(&buf, &cnt).unwrap();
+            let (_, hash) = loose_insert(buf, &cnt).unwrap();
             hash_content_map.insert(hash, content);
         }
 

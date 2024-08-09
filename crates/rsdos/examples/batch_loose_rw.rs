@@ -37,7 +37,7 @@ fn main() -> anyhow::Result<()> {
                             let content = "test".repeat(i as usize);
                             let bstring = content.as_bytes().to_vec();
 
-                            rsdos::io_loose::insert(&bstring, &cnt)?;
+                            rsdos::io_loose::insert(bstring, &cnt)?;
                         }
                     }
                     "pull" => {
