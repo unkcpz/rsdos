@@ -25,17 +25,21 @@ const SANDBOX: &str = "sandbox";
 #[derive(Debug, thiserror::Error)]
 #[allow(missing_docs)]
 pub enum Error {
+    #[error("std::io error")]
+    StdIO(#[from] std::io::Error),
     #[error("Refusing to initialize in non-empty directory as '{}'", .path.display())]
     DirectoryNotEmpty { path: PathBuf },
     #[error("Could not obtain the container directory at {}", .path.display())]
-    ObtainContainerDir { path: PathBuf },
+    UnableObtainDir { path: PathBuf },
+    #[error("Uninitialized container directory at {}", .path.display())]
+    Uninitialized {path: PathBuf},
     #[error("Could not read the container config file at {}", .path.display())]
     ConfigFileRead {
         source: std::io::Error,
         path: PathBuf,
     },
-    #[error("Could not reach loose store at {cause}")]
-    LooseStoreError { cause: String },
+    #[error("Could not reach {}: {cause}", .path.display())]
+    StoreComponentError { path: PathBuf, cause: String },
 }
 
 impl Container {
@@ -101,18 +105,15 @@ impl Container {
     }
 
     /// validate if it is a valid container (means properly initialized from empty dir), return itself if valid.
-    pub fn validate(&self) -> anyhow::Result<&Self> {
-        if !self.path.exists() {
-            anyhow::bail!("{} not exist, initialize first", self.path.display());
+    pub fn validate(&self) -> Result<&Self, Error> {
+        if !self.path.exists() || Dir(&self.path).is_empty()? {
+            return Err(Error::Uninitialized { path: self.path.clone() })
         }
 
         if !self.path.is_dir() {
-            anyhow::bail!("{} is not a directory", self.path.display());
+            return Err(Error::UnableObtainDir { path: self.path.clone() })
         }
 
-        if Dir(&self.path).is_empty()? {
-            anyhow::bail!("{} is empty, initialize first", self.path.display());
-        }
 
         for entry in self.path.read_dir()? {
             let path = entry?.path();
@@ -120,12 +121,12 @@ impl Container {
                 match filename.to_string_lossy().as_ref() {
                     LOOSE | PACKS | DUPLICATES | SANDBOX => {
                         if !path.is_dir() {
-                            anyhow::bail!("{} is not a directory", path.display())
+                            return Err(Error::StoreComponentError { path: self.path.clone(), cause: "not a dir".to_string() })
                         }
                     }
                     CONFIG_FILE | PACKS_DB => {
                         if !path.is_file() {
-                            anyhow::bail!("{} is not a file", path.display())
+                            return Err(Error::StoreComponentError { path: self.path.clone(), cause: "not a file".to_string() })
                         }
                     }
                     // _ => unreachable!("unknow path {}", filename.to_string_lossy()),
@@ -139,69 +140,44 @@ impl Container {
 
     pub fn loose(&self) -> Result<PathBuf, Error> {
         let path = Dir(&self.path).at_path(LOOSE);
-        if !path.exists() {
-            // anyhow::bail!("{} not exist", path.display());
-            return Err(Error::LooseStoreError {
-                cause: format!("{} should exist", path.display()),
-            });
-        }
-
-        if !path.is_dir() {
-            return Err(Error::LooseStoreError {
-                cause: format!("{} should be a directory", path.display()),
-            });
+        if !path.exists() || !path.is_dir(){
+            return Err(Error::StoreComponentError { path: self.path.clone(), cause: "should be a dir".to_string() })
         }
 
         Ok(path)
     }
 
-    pub fn sandbox(&self) -> anyhow::Result<PathBuf> {
+    pub fn sandbox(&self) -> Result<PathBuf, Error> {
         let path = Dir(&self.path).at_path(SANDBOX);
-        if !path.exists() {
-            anyhow::bail!("{} not exist", path.display());
-        }
-
-        if !path.is_dir() {
-            anyhow::bail!("{} is not a directory", path.display());
+        if !path.exists() || !path.is_dir(){
+            return Err(Error::StoreComponentError { path: self.path.clone(), cause: "should be a dir".to_string() })
         }
 
         Ok(path)
     }
 
-    pub fn packs(&self) -> anyhow::Result<PathBuf> {
+    pub fn packs(&self) -> Result<PathBuf, Error> {
         let path = Dir(&self.path).at_path(PACKS);
-        if !path.exists() {
-            anyhow::bail!("{} not exist", path.display());
-        }
-
-        if !path.is_dir() {
-            anyhow::bail!("{} is not a directory", path.display());
+        if !path.exists() || !path.is_dir(){
+            return Err(Error::StoreComponentError { path: self.path.clone(), cause: "should be a dir".to_string() })
         }
 
         Ok(path)
     }
 
-    pub fn packs_db(&self) -> anyhow::Result<PathBuf> {
+    pub fn packs_db(&self) -> Result<PathBuf, Error> {
         let path = Dir(&self.path).at_path(PACKS_DB);
-        if !path.exists() {
-            anyhow::bail!("{} not exist", path.display());
-        }
-
-        if !path.is_file() {
-            anyhow::bail!("{} is not a file", path.display());
+        if !path.exists() || !path.is_file(){
+            return Err(Error::StoreComponentError { path: self.path.clone(), cause: "should be a file".to_string() })
         }
 
         Ok(path)
     }
 
-    pub fn config_file(&self) -> anyhow::Result<PathBuf> {
+    pub fn config_file(&self) -> Result<PathBuf, Error> {
         let path = Dir(&self.path).at_path(CONFIG_FILE);
-        if !path.exists() {
-            anyhow::bail!("{} not exist", path.display());
-        }
-
-        if !path.is_file() {
-            anyhow::bail!("{} is not a file", path.display());
+        if !path.exists() || !path.is_file(){
+            return Err(Error::StoreComponentError { path: self.path.clone(), cause: "should be a file".to_string() })
         }
 
         Ok(path)

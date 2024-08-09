@@ -42,17 +42,15 @@ impl<'a> Dir<'a> {
         Ok(())
     }
 
+    #[must_use]
     pub fn at_path(self, component: &str) -> PathBuf {
         let mut file = self.0.clone();
         file.push(component);
         file
     }
 
-    pub fn is_empty(self) -> Result<bool, Error> {
-        let mut entries = fs::read_dir(self.0.clone()).map_err(|e| Error::IoOpen {
-            source: e,
-            path: self.0.clone(),
-        })?;
+    pub fn is_empty(self) -> Result<bool, std::io::Error> {
+        let mut entries = fs::read_dir(self.0.clone())?;
         Ok(entries.next().is_none())
     }
 }
