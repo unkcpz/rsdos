@@ -10,7 +10,7 @@ use crate::Error;
 pub struct LObject {
     pub id: String,
     pub loc: PathBuf,
-    pub expected_size: u64, // used for validate write operation
+    pub expected_size: u64, // used for validate write operation, TODO: should use cheap checksum instead
 }
 
 impl LObject {
@@ -119,8 +119,8 @@ mod tests {
 
         let obj = pull_from_loose(&hashkey, &cnt).unwrap().unwrap();
         assert_eq!(
-            String::from_utf8(obj.to_bytes().unwrap()),
-            String::from_utf8(b"test 0".to_vec())
+            String::from_utf8(obj.to_bytes().unwrap()).unwrap(),
+            String::from_utf8(b"test 0".to_vec()).unwrap(),
         );
     }
 }

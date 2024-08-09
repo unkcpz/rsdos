@@ -82,10 +82,8 @@ mod tests {
 
         // read from packs
         for (hash, content) in hash_content_map {
-            let obj = pull_from_packs(&hash, &cnt).unwrap();
-            let mut sbuf = String::new();
-            obj.unwrap().reader.read_to_string(&mut sbuf).unwrap();
-            assert_eq!(sbuf, content);
+            let obj = pull_from_packs(&hash, &cnt).unwrap().unwrap();
+            assert_eq!(String::from_utf8(obj.to_bytes().unwrap()).unwrap(), content);
         }
     }
 }

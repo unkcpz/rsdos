@@ -1,58 +1,91 @@
 use anyhow::Context;
 use rusqlite::{params, params_from_iter, Connection};
 use sha2::{Digest, Sha256};
-use std::io::{self, BufReader, Cursor, Read, Seek, SeekFrom};
-use std::os::unix::fs::FileExt;
-use std::path::PathBuf;
-use std::{fs, usize};
+use std::collections::HashSet;
+use std::fs;
+use std::io::{self, Read, Seek, SeekFrom};
+use std::path::{Path, PathBuf};
 
+use crate::db::PackEntry;
 use crate::io::{copy_by_chunk, ByteString, HashWriter, ReaderMaker};
-use crate::{db, Container, Object};
+use crate::{db, Container};
 
 use crate::utils::Dir;
+use crate::Error;
+
+/// ``raw_size`` is the size without compress.
+pub struct PObject {
+    pub id: String,
+    pub loc: PathBuf,
+    pub offset: u64,
+    pub raw_size: u64, // used for checking data integrity
+    pub size: u64,
+    pub compressed: bool,
+    // pub checksum: u64, // CRC32
+}
+
+impl PObject {
+    fn new<P: AsRef<Path>>(
+        id: &str,
+        loc: P,
+        offset: u64,
+        raw_size: u64,
+        size: u64,
+        compressed: bool,
+    ) -> Self {
+        Self {
+            id: id.to_string(),
+            loc: loc.as_ref().to_path_buf(),
+            offset,
+            raw_size,
+            size,
+            compressed,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn to_bytes(&self) -> Result<ByteString, Error> {
+        let mut rdr = self.make_reader()?;
+        let mut buf = vec![];
+        let n = std::io::copy(&mut rdr, &mut buf)?;
+        if n == self.raw_size {
+            Ok(buf)
+        } else {
+            Err(Error::UnexpectedCopySize {
+                expected: self.raw_size,
+                got: n,
+            })
+        }
+    }
+}
+
+impl ReaderMaker for PObject {
+    fn make_reader(&self) -> Result<impl Read, crate::Error> {
+        let mut f = fs::OpenOptions::new().read(true).open(&self.loc)?;
+        f.seek(SeekFrom::Start(self.offset))?;
+        Ok(f.take(self.size))
+    }
+}
 
 // XXX: how to combine this with using multi_pull_from_packs???
 // In principle, single read is more practical than the multiple read,
 // should considered other way around to use this pull in multi_pull function.
 // The reason is that read will first fill the memory so kind of a problem when reading large
 // file. For a single read, the reader can be returned (file with offset and size to read), and
-// then proceed with write to writer using buffer reader/writer. 
-pub fn pull_from_packs(
-    hashkey: &str,
-    cnt: &Container,
-) -> anyhow::Result<Option<Object<Cursor<ByteString>>>> {
+// then proceed with write to writer using buffer reader/writer.
+pub fn pull_from_packs(hashkey: &str, cnt: &Container) -> Result<Option<PObject>, Error> {
     let conn = Connection::open(cnt.packs_db()?)?;
     if let Some(pn) = db::select(&conn, hashkey)? {
-        let (hashkey, _, _, offset, length, pack_id) = (
-            pn.hashkey,
-            pn.compressed,
-            pn.size,
-            pn.offset,
-            pn.length,
-            pn.pack_id,
-        );
-        let buf_size = usize::try_from(length)?;
-        let pack = fs::OpenOptions::new()
-            .read(true)
-            .open(cnt.packs()?.join(format!("{pack_id}")))?;
-        let mut buf = vec![0u8; buf_size];
-        pack.read_exact_at(&mut buf, offset)?;
-
-        let obj = Object {
-            reader: Cursor::new(buf),
-            expected_size: buf_size,
-            hashkey,
-        };
+        let pack_id = pn.pack_id;
+        let loc = cnt.packs()?.join(format!("{pack_id}"));
+        let obj = PObject::new(hashkey, loc, pn.offset, pn.raw_size, pn.size, pn.compressed);
         Ok(Some(obj))
     } else {
         Ok(None)
     }
 }
 
-pub fn multi_pull_from_packs(
-    hashkeys: &[String],
-    cnt: &Container,
-) -> anyhow::Result<Vec<Option<Object<Cursor<ByteString>>>>> {
+pub fn multi_pull_from_packs(hashkeys: &[String], cnt: &Container) -> Result<Vec<PObject>, Error> {
     // TODO: make chunk size configuable
     let _max_chunk_iterate_length = 9500;
     let in_sql_max_length = 950;
@@ -60,52 +93,42 @@ pub fn multi_pull_from_packs(
     let mut conn = Connection::open(cnt.packs_db()?)?;
     let tx = conn.transaction()?;
     let mut objs: Vec<_> = Vec::with_capacity(hashkeys.len());
-    // XXX: It makes less sense to return an Option to represent the hashkey is not found, since
-    // WHERE IN query is not guaranteed the results are in order.
     for chunk in hashkeys.chunks(in_sql_max_length) {
         let placeholders: Vec<&str> = (0..chunk.len()).map(|_| "?").collect();
         let mut stmt = tx.prepare_cached(&format!("SELECT hashkey, compressed, size, offset, length, pack_id FROM db_object WHERE hashkey IN ({})", placeholders.join(",")))?;
-        let rows = stmt.query_map(params_from_iter(chunk), |row| {
-            let hashkey: String = row.get(0)?;
-            let compressed: bool = row.get(1)?;
-            let size: u64 = row.get(2)?;
-            let offset: u64 = row.get(3)?;
-            let length: u64 = row.get(4)?;
-            let pack_id: u64 = row.get(5)?;
+        let rows = stmt
+            .query_map(params_from_iter(chunk), |row| {
+                let hashkey: String = row.get(0)?;
+                let compressed: bool = row.get(1)?;
+                let raw_size: u64 = row.get(2)?;
+                let offset: u64 = row.get(3)?;
+                let size: u64 = row.get(4)?;
+                let pack_id: u64 = row.get(5)?;
 
-            Ok((hashkey, compressed, size, offset, length, pack_id))
-        })?;
-
-        let rows: Vec<_> = rows
-            .into_iter()
-            .map(|row| match row {
-                Ok(r) => Some(r),
-                Err(_) => None,
-            })
-            .collect();
-        // collect and sort by offset
-        // rows.sort_by_key(|k| k.3);
+                Ok(PackEntry {
+                    hashkey,
+                    compressed,
+                    raw_size,
+                    size,
+                    offset,
+                    pack_id,
+                })
+            })?
+            .filter_map(Result::ok)
+            .collect::<Vec<_>>();
 
         for row in rows {
-            if let Some(row) = row {
-                let (hashkey, _, _, offset, length, pack_id) = row;
-                let buf_size = usize::try_from(length)?;
-
-                // XXX: sort pack_id and then offset to read in sequence
-                let pack = fs::OpenOptions::new()
-                    .read(true)
-                    .open(cnt.packs()?.join(format!("{pack_id}")))?;
-                let mut buf = vec![0u8; buf_size];
-                pack.read_exact_at(&mut buf, offset)?;
-                let obj = Object {
-                    reader: Cursor::new(buf),
-                    expected_size: buf_size,
-                    hashkey,
-                };
-                objs.push(Some(obj));
-            } else {
-                objs.push(None);
-            }
+            let pack_id = row.pack_id;
+            let loc = cnt.packs()?.join(format!("{pack_id}"));
+            let obj = PObject::new(
+                &row.hashkey,
+                loc,
+                row.offset,
+                row.raw_size,
+                row.size,
+                row.compressed,
+            );
+            objs.push(obj);
         }
     }
     tx.commit()?;
@@ -275,10 +298,11 @@ mod tests {
         assert_eq!(sbuf, "test 0");
 
         // also check pack DB point to correct location to extract content
-        let obj = pull_from_packs(&hash, &cnt).unwrap();
-        let mut sbuf = String::new();
-        obj.unwrap().reader.read_to_string(&mut sbuf).unwrap();
-        assert_eq!(sbuf, "test 0");
+        let obj = pull_from_packs(&hash, &cnt).unwrap().unwrap();
+        assert_eq!(
+            String::from_utf8(obj.to_bytes().unwrap()).unwrap(),
+            "test 0".to_string()
+        );
 
         // subsquent add will still goes to pack 0 (since pack_target_size is 4 GiB)
         let bstr: ByteString = b"test 1".to_vec();
@@ -298,10 +322,11 @@ mod tests {
         f0pack.read_to_string(&mut sbuf).unwrap();
         assert_eq!(sbuf, "test 0test 1");
 
-        let obj = pull_from_packs(&hash, &cnt).unwrap();
-        let mut sbuf = String::new();
-        obj.unwrap().reader.read_to_string(&mut sbuf).unwrap();
-        assert_eq!(sbuf, "test 1");
+        let obj = pull_from_packs(&hash, &cnt).unwrap().unwrap();
+        assert_eq!(
+            String::from_utf8(obj.to_bytes().unwrap()).unwrap(),
+            "test 1".to_string()
+        );
     }
 
     #[test]
@@ -331,10 +356,11 @@ mod tests {
         f0pack.read_to_string(&mut sbuf).unwrap();
         assert_eq!(sbuf, "test 0");
 
-        let obj = pull_from_packs(&hash, &cnt).unwrap();
-        let mut sbuf = String::new();
-        obj.unwrap().reader.read_to_string(&mut sbuf).unwrap();
-        assert_eq!(sbuf, "test 0");
+        let obj = pull_from_packs(&hash, &cnt).unwrap().unwrap();
+        assert_eq!(
+            String::from_utf8(obj.to_bytes().unwrap()).unwrap(),
+            "test 0".to_string()
+        );
     }
 
     #[test]
@@ -367,16 +393,14 @@ mod tests {
         assert_eq!(info.count.packs, 100);
 
         for (hash, content) in hash_content_map {
-            let obj = pull_from_packs(&hash, &cnt).unwrap();
-            let mut sbuf = String::new();
-            obj.unwrap().reader.read_to_string(&mut sbuf).unwrap();
-            assert_eq!(sbuf, content);
+            let obj = pull_from_packs(&hash, &cnt).unwrap().unwrap();
+            assert_eq!(String::from_utf8(obj.to_bytes().unwrap()).unwrap(), content);
         }
     }
 
     #[test]
     fn io_packs_pull_from_any_single() {
-        let cnt = gen_tmp_container(64).lock().unwrap();
+        let cnt = gen_tmp_container(6400).lock().unwrap();
 
         let mut hash_content_map: HashMap<String, String> = HashMap::new();
         for i in 0..100 {
@@ -389,14 +413,12 @@ mod tests {
         // check packs has 2 packs
         // check content of 1 pack is `test 0`
         let info = stat(&cnt).unwrap();
-        assert_eq!(info.count.packs_file, 10);
+        assert_eq!(info.count.packs_file, 1);
         assert_eq!(info.count.packs, 100);
 
         for (hash, content) in hash_content_map {
-            let obj = pull_from_packs(&hash, &cnt).unwrap();
-            let mut sbuf = String::new();
-            obj.unwrap().reader.read_to_string(&mut sbuf).unwrap();
-            assert_eq!(sbuf, content);
+            let obj = pull_from_packs(&hash, &cnt).unwrap().unwrap();
+            assert_eq!(String::from_utf8(obj.to_bytes().unwrap()).unwrap(), content);
         }
     }
 
@@ -421,12 +443,12 @@ mod tests {
         let hashkeys = hash_content_map.keys().collect::<Vec<_>>();
         let hashkeys: Vec<_> = hashkeys.iter().map(|&s| s.to_owned()).collect();
         let objs = multi_pull_from_packs(&hashkeys, &cnt).unwrap();
-        for mut obj in objs.into_iter().flatten() {
-            let mut sbuf = String::new();
-            let content = hash_content_map.get(&obj.hashkey).unwrap();
-            obj.reader.read_to_string(&mut sbuf).unwrap();
-            assert_eq!(sbuf, content.clone());
-            sbuf.clear();
+        for obj in objs {
+            let content = hash_content_map.get(&obj.id).unwrap();
+            assert_eq!(
+                String::from_utf8(obj.to_bytes().unwrap()).unwrap(),
+                content.to_owned()
+            );
         }
     }
 }

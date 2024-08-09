@@ -17,6 +17,8 @@ The (r)u(s)ty  [`(d)isk-(o)bject(s)tore`](https://github.com/aiidateam/disk-obje
 - `repack` is on packed store and do the `pack` again using `sandbox` folder.
 - Besides the `pack` and `repack` cases above, `insert_many` to packed store should not exposed to normal user. 
 - To make `Container` a generic type, things that implement `insert`, `extract`, `insert_many` and `extract_many` should be a Container no matter it is local or not. 
+- hashkey servers two purpose: 1. as the id of the object stored, this need to use sha256 to avoid duplicate 2. as the checksum to see if the lazy object read is valid, for this purpose can use cheap checksum.
+- For the Packed objects, `raw_size` is the uncompressed size while `size` is the compressed size occupied the packed file, this different from legacy dos which `length` is the compressed size occupied in packed file.
 
 #### Py wrapper
 
@@ -35,7 +37,7 @@ The `pack` operation will trigger the move from loose to packed store and result
 
 - The loose is the same, `packs` need to rename to `packed`.
 - The `config.json` will contain more information so use default to fill the missing field.
-- The packed DB is the most important thing to migrate, all elements are read out and injected into the new embeded DB backend.
+- The packed DB is the most important thing to migrate, all elements are read out and injected into the new embeded DB backend. (need to be careful about `size`, `raw_size` definition w.r.t to the legacy dos)
 - To do the migration, function as CLI command is provided. I also need to provide python wrapper so it can call from AiiDA.
 
 ### File operation timeout

@@ -36,9 +36,15 @@ pub enum Error {
     #[error("Could not reach {}: {cause}", .path.display())]
     StoreComponentError { path: PathBuf, cause: String },
 
-    // io modele errors
+    // io module errors
     #[error("Unexpected size in copy: expect {} got {}", .expected, .got)]
     UnexpectedCopySize { expected: u64, got: u64 },
     #[error("Unable to copy by chunk")]
     ChunkCopyError { source: std::io::Error },
+
+    // db module erors
+    #[error("rusqlite error")]
+    RusqliteError(#[from] rusqlite::Error),
+    #[error("Could not select from DB")]
+    SQLiteSelectError { source: rusqlite::Error },
 }
