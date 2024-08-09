@@ -133,7 +133,7 @@ pub fn extract_many(hashkeys: &[String], cnt: &Container) -> Result<Vec<PObject>
     Ok(objs)
 }
 
-pub fn insert(source: impl ReaderMaker, cnt: &Container) -> Result<(u64, String), Error> {
+pub fn insert<T>(source: T, cnt: &Container) -> Result<(u64, String), Error> where T: ReaderMaker{
     let (bytes_copied, hash_hex) = insert_many(vec![source], cnt)?
         .first()
         .map(|(n, hash)| (*n, hash.clone()))
