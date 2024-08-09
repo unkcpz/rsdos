@@ -55,7 +55,7 @@ mod tests {
     use super::*;
 
     use crate::{pull_from_packs, push_to_loose, stat, test_utils::gen_tmp_container};
-    use std::{collections::HashMap, io::Read};
+    use std::collections::HashMap;
 
     #[test]
     fn pack_loose_default() {

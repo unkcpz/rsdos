@@ -1,7 +1,6 @@
 use anyhow::Context;
 use rusqlite::{params, params_from_iter, Connection};
 use sha2::{Digest, Sha256};
-use std::collections::HashSet;
 use std::fs;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -434,15 +433,23 @@ mod tests {
             hash_content_map.insert(hash, content);
         }
 
-        // check packs has 2 packs
-        // check content of 1 pack is `test 0`
         let info = stat(&cnt).unwrap();
         assert_eq!(info.count.packs_file, 10);
         assert_eq!(info.count.packs, 100);
 
-        let hashkeys = hash_content_map.keys().collect::<Vec<_>>();
-        let hashkeys: Vec<_> = hashkeys.iter().map(|&s| s.to_owned()).collect();
+        let mut hashkeys = hash_content_map
+            .keys()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        // add two random hashkeys that will not be found therefore will not influence the result
+        hashkeys
+            .push("68e2056a0496c469727fa5ab041e1778e39137643fd24db94dd7a532db17aaba".to_string());
+        hashkeys
+            .push("7e76df6ac7d08a837f7212e765edd07333c8159ffa0484bc26394e7ffd898817".to_string());
+
         let objs = multi_pull_from_packs(&hashkeys, &cnt).unwrap();
+        assert_eq!(objs.len() + 2, hashkeys.len());
+
         for obj in objs {
             let content = hash_content_map.get(&obj.id).unwrap();
             assert_eq!(

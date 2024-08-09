@@ -2,10 +2,7 @@ mod common;
 use common::gen_tmp_container;
 
 use rsdos::add_file::StoreType;
-use std::{
-    collections::HashMap,
-    io::{Read, Write},
-};
+use std::{collections::HashMap, io::Write};
 use tempfile::{tempdir, NamedTempFile};
 
 #[test]

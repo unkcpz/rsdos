@@ -1,5 +1,4 @@
 use crate::Error;
-use anyhow::Context;
 use bytes::Buf;
 use sha2::Digest;
 use std::io::{self, Read, Write};
