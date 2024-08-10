@@ -106,13 +106,12 @@ where
     let _max_chunk_iterate_length = 9500;
     let in_sql_max_length = 950;
 
-    let mut conn = Connection::open(cnt.packs_db()?)?;
-    let tx = conn.transaction()?;
+    let conn = Connection::open(cnt.packs_db()?)?;
     let mut objs: Vec<PObject> = vec![];
     let chunked_iter = chunked(hashkeys.into_iter(), in_sql_max_length);
     for chunk in chunked_iter {
         let placeholders: Vec<&str> = (0..chunk.len()).map(|_| "?").collect();
-        let mut stmt = tx.prepare_cached(&format!("SELECT hashkey, compressed, size, offset, length, pack_id FROM db_object WHERE hashkey IN ({})", placeholders.join(",")))?;
+        let mut stmt = conn.prepare_cached(&format!("SELECT hashkey, compressed, size, offset, length, pack_id FROM db_object WHERE hashkey IN ({})", placeholders.join(",")))?;
         let rows = stmt
             .query_map(params_from_iter(chunk.into_iter()), |row| {
                 let hashkey: String = row.get(0)?;
@@ -148,7 +147,6 @@ where
             objs.push(obj);
         }
     }
-    tx.commit()?;
     // XXX: this is not a true iterator in constucted
     Ok(Box::new(objs.into_iter()))
 }
