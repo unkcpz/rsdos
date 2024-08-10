@@ -97,23 +97,27 @@ where
     })
 }
 
-pub fn extract_many<I>(hashkeys: I, cnt: &Container) -> Result<Box<dyn Iterator<Item = PObject>>, Error>
+pub fn extract_many<'a, I>(
+    hashkeys: I,
+    cnt: &'a Container,
+) -> Result<Box<dyn Iterator<Item = PObject> + 'a>, Error>
 where
     I: IntoIterator,
     I::Item: ToSql,
+    <I as IntoIterator>::IntoIter: 'a,
 {
     // TODO: make chunk size configuable
     let _max_chunk_iterate_length = 9500;
     let in_sql_max_length = 950;
 
     let conn = Connection::open(cnt.packs_db()?)?;
-    let mut objs: Vec<PObject> = vec![];
     let chunked_iter = chunked(hashkeys.into_iter(), in_sql_max_length);
-    for chunk in chunked_iter {
+    let packs_path = cnt.packs()?;
+    let iter_vec = chunked_iter.flat_map(move |chunk| {
         let placeholders: Vec<&str> = (0..chunk.len()).map(|_| "?").collect();
-        let mut stmt = conn.prepare_cached(&format!("SELECT hashkey, compressed, size, offset, length, pack_id FROM db_object WHERE hashkey IN ({})", placeholders.join(",")))?;
+        let mut stmt = conn.prepare_cached(&format!("SELECT hashkey, compressed, size, offset, length, pack_id FROM db_object WHERE hashkey IN ({})", placeholders.join(","))).unwrap();
         let rows = stmt
-            .query_map(params_from_iter(chunk.into_iter()), |row| {
+            .query_map(params_from_iter(chunk), |row| {
                 let hashkey: String = row.get(0)?;
                 let compressed: bool = row.get(1)?;
                 let raw_size: u64 = row.get(2)?;
@@ -129,13 +133,14 @@ where
                     offset,
                     pack_id,
                 })
-            })?
+            }).unwrap()
             .filter_map(Result::ok)
             .collect::<Vec<_>>();
 
+        let mut objs: Vec<PObject> = Vec::with_capacity(rows.len());
         for row in rows {
             let pack_id = row.pack_id;
-            let loc = cnt.packs()?.join(format!("{pack_id}"));
+            let loc = packs_path.join(format!("{pack_id}"));
             let obj = PObject::new(
                 &row.hashkey,
                 loc,
@@ -146,9 +151,9 @@ where
             );
             objs.push(obj);
         }
-    }
-    // XXX: this is not a true iterator in constucted
-    Ok(Box::new(objs.into_iter()))
+        objs
+    });
+    Ok(Box::new(iter_vec))
 }
 
 pub fn insert<T>(source: T, cnt: &Container) -> Result<(u64, String), Error>
