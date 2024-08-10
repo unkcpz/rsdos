@@ -35,7 +35,7 @@ pub fn pack_loose(cnt: &Container) -> anyhow::Result<()> {
 
     let nbytes_hashkeys = insert_many(loose_objs, cnt)?;
     let got_hashkeys: Vec<_> = nbytes_hashkeys
-        .iter()
+        .into_iter()
         .map(|(_, hashkey)| hashkey.clone())
         .collect();
 

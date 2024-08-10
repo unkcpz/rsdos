@@ -124,7 +124,6 @@ impl PyContainer {
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))?;
 
         let res = objs
-            .iter()
             .map(|obj| {
                 let hashkey = &obj.id;
                 let b = match obj.to_bytes() {

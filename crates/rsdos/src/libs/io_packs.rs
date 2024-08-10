@@ -1,4 +1,4 @@
-use rusqlite::{params, params_from_iter, Connection};
+use rusqlite::{params, params_from_iter, Connection, ToSql};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::{self, Read, Seek, SeekFrom};
@@ -83,19 +83,38 @@ pub fn extract(hashkey: &str, cnt: &Container) -> Result<Option<PObject>, Error>
     }
 }
 
-pub fn extract_many(hashkeys: &[String], cnt: &Container) -> Result<Vec<PObject>, Error> {
+fn chunked<I>(mut iter: I, chunk_size: usize) -> impl Iterator<Item = Vec<I::Item>>
+where
+    I: Iterator,
+{
+    std::iter::from_fn(move || {
+        let chunk: Vec<_> = iter.by_ref().take(chunk_size).collect();
+        if chunk.is_empty() {
+            None
+        } else {
+            Some(chunk)
+        }
+    })
+}
+
+pub fn extract_many<I>(hashkeys: I, cnt: &Container) -> Result<Box<dyn Iterator<Item = PObject>>, Error>
+where
+    I: IntoIterator,
+    I::Item: ToSql,
+{
     // TODO: make chunk size configuable
     let _max_chunk_iterate_length = 9500;
     let in_sql_max_length = 950;
 
     let mut conn = Connection::open(cnt.packs_db()?)?;
     let tx = conn.transaction()?;
-    let mut objs: Vec<_> = Vec::with_capacity(hashkeys.len());
-    for chunk in hashkeys.chunks(in_sql_max_length) {
+    let mut objs: Vec<PObject> = vec![];
+    let chunked_iter = chunked(hashkeys.into_iter(), in_sql_max_length);
+    for chunk in chunked_iter {
         let placeholders: Vec<&str> = (0..chunk.len()).map(|_| "?").collect();
         let mut stmt = tx.prepare_cached(&format!("SELECT hashkey, compressed, size, offset, length, pack_id FROM db_object WHERE hashkey IN ({})", placeholders.join(",")))?;
         let rows = stmt
-            .query_map(params_from_iter(chunk), |row| {
+            .query_map(params_from_iter(chunk.into_iter()), |row| {
                 let hashkey: String = row.get(0)?;
                 let compressed: bool = row.get(1)?;
                 let raw_size: u64 = row.get(2)?;
@@ -130,10 +149,14 @@ pub fn extract_many(hashkeys: &[String], cnt: &Container) -> Result<Vec<PObject>
         }
     }
     tx.commit()?;
-    Ok(objs)
+    // XXX: this is not a true iterator in constucted
+    Ok(Box::new(objs.into_iter()))
 }
 
-pub fn insert<T>(source: T, cnt: &Container) -> Result<(u64, String), Error> where T: ReaderMaker{
+pub fn insert<T>(source: T, cnt: &Container) -> Result<(u64, String), Error>
+where
+    T: ReaderMaker,
+{
     let (bytes_copied, hash_hex) = insert_many(vec![source], cnt)?
         .first()
         .map(|(n, hash)| (*n, hash.clone()))
@@ -455,14 +478,16 @@ mod tests {
             .push("7e76df6ac7d08a837f7212e765edd07333c8159ffa0484bc26394e7ffd898817".to_string());
 
         let objs = extract_many(&hashkeys, &cnt).unwrap();
-        assert_eq!(objs.len() + 2, hashkeys.len());
 
+        let mut count = 0;
         for obj in objs {
+            count += 1;
             let content = hash_content_map.get(&obj.id).unwrap();
             assert_eq!(
                 String::from_utf8(obj.to_bytes().unwrap()).unwrap(),
                 content.to_owned()
             );
         }
+        assert_eq!(count + 2, hashkeys.len());
     }
 }
