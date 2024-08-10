@@ -112,11 +112,10 @@ where
 
     let conn = Connection::open(cnt.packs_db()?)?;
     let chunked_iter = chunked(hashkeys.into_iter(), in_sql_max_length);
-    let packs_path = cnt.packs()?;
     let iter_vec = chunked_iter.flat_map(move |chunk| {
         let placeholders: Vec<&str> = (0..chunk.len()).map(|_| "?").collect();
         let mut stmt = conn.prepare_cached(&format!("SELECT hashkey, compressed, size, offset, length, pack_id FROM db_object WHERE hashkey IN ({})", placeholders.join(","))).unwrap();
-        let rows = stmt
+        let mut rows = stmt
             .query_map(params_from_iter(chunk), |row| {
                 let hashkey: String = row.get(0)?;
                 let compressed: bool = row.get(1)?;
@@ -137,21 +136,26 @@ where
             .filter_map(Result::ok)
             .collect::<Vec<_>>();
 
-        let mut objs: Vec<PObject> = Vec::with_capacity(rows.len());
-        for row in rows {
-            let pack_id = row.pack_id;
-            let loc = packs_path.join(format!("{pack_id}"));
-            let obj = PObject::new(
-                &row.hashkey,
-                loc,
-                row.offset,
-                row.raw_size,
-                row.size,
-                row.compressed,
-            );
-            objs.push(obj);
-        }
-        objs
+        // let mut objs: Vec<PObject> = Vec::with_capacity(rows.len());
+        std::iter::from_fn(move || {
+            if let Some(row) = rows.pop() {
+                let pack_id = row.pack_id;
+                let packs_path = cnt.packs().unwrap();
+                let loc = packs_path.join(format!("{pack_id}"));
+                let obj = PObject::new(
+                    &row.hashkey,
+                    loc,
+                    row.offset,
+                    row.raw_size,
+                    row.size,
+                    row.compressed,
+                );
+                Some(obj)
+            } else {
+                None
+            }
+
+        })
     });
     Ok(Box::new(iter_vec))
 }
