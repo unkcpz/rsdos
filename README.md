@@ -11,6 +11,7 @@ The (r)u(s)ty  [`(d)isk-(o)bject(s)tore`](https://github.com/aiidateam/disk-obje
 - `insert` and `insert_many` for insert single or many objects to container.
 - `extract` and `extract_many` for extract single or many objects from container.
 - `insert_many` and `extract_many` should both using iterator as input/output since the number of objects can be huge. Meanwhile using iterator helps with buffer management on rw large amount of files.
+- For the container, it should implement `insert`, `extract`, `insert_many` and `extract_many`. That requires loose has `insert_many` implemented from `insert` and be the method for the container.
 - Since insert/extract can interact with either loose or packed store, I use enum-based strategy.
 - naming convention are `loose` and `packed`. To compatible with legacy dos, if legacy container exist, `packs` is also valid.
 - `pack` is the operation to move objects from loose to packed store. It calling `insert_many` to packed store since no overhead on DB openning/closing. 

@@ -100,11 +100,10 @@ where
 pub fn extract_many<'a, I>(
     hashkeys: I,
     cnt: &'a Container,
-) -> Result<Box<dyn Iterator<Item = PObject> + 'a>, Error>
+) -> Result<impl Iterator<Item = PObject> + 'a, Error>
 where
-    I: IntoIterator,
+    I: IntoIterator + 'a,
     I::Item: ToSql,
-    <I as IntoIterator>::IntoIter: 'a,
 {
     // TODO: make chunk size configuable
     let _max_chunk_iterate_length = 9500;
@@ -112,6 +111,9 @@ where
 
     let conn = Connection::open(cnt.packs_db()?)?;
     let chunked_iter = chunked(hashkeys.into_iter(), in_sql_max_length);
+    // NOTE: I believe when yield is available in rust (https://without.boats/blog/a-four-year-plan/)
+    // this can be more straightforward implemented. I was quite struggle with the ownership here
+    // and have to use move for both `chunk` and inner iterator. 
     let iter_vec = chunked_iter.flat_map(move |chunk| {
         let placeholders: Vec<&str> = (0..chunk.len()).map(|_| "?").collect();
         let mut stmt = conn.prepare_cached(&format!("SELECT hashkey, compressed, size, offset, length, pack_id FROM db_object WHERE hashkey IN ({})", placeholders.join(","))).unwrap();
@@ -136,7 +138,6 @@ where
             .filter_map(Result::ok)
             .collect::<Vec<_>>();
 
-        // let mut objs: Vec<PObject> = Vec::with_capacity(rows.len());
         std::iter::from_fn(move || {
             if let Some(row) = rows.pop() {
                 let pack_id = row.pack_id;
@@ -157,7 +158,7 @@ where
 
         })
     });
-    Ok(Box::new(iter_vec))
+    Ok(iter_vec)
 }
 
 pub fn insert<T>(source: T, cnt: &Container) -> Result<(u64, String), Error>
