@@ -83,7 +83,7 @@ pub fn extract(hashkey: &str, cnt: &Container) -> Result<Option<PObject>, Error>
     }
 }
 
-fn chunked<I>(mut iter: I, chunk_size: usize) -> impl Iterator<Item = Vec<I::Item>>
+fn _chunked<I>(mut iter: I, chunk_size: usize) -> impl Iterator<Item = Vec<I::Item>>
 where
     I: Iterator,
 {
@@ -110,7 +110,7 @@ where
     let in_sql_max_length = 950;
 
     let conn = Connection::open(cnt.packs_db()?)?;
-    let chunked_iter = chunked(hashkeys.into_iter(), in_sql_max_length);
+    let chunked_iter = _chunked(hashkeys.into_iter(), in_sql_max_length);
     // NOTE: I believe when yield is available in rust (https://without.boats/blog/a-four-year-plan/)
     // this can be more straightforward implemented. I was quite struggle with the ownership here
     // and have to use move for both `chunk` and inner iterator. 
