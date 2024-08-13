@@ -85,7 +85,12 @@ impl Container {
         Ok(config)
     }
 
-    /// validate if it is a valid container (means properly initialized from empty dir), return itself if valid.
+    /// The method validate if it is a valid container (means properly initialized from empty dir), return itself if valid.
+    /// This function is supposed to be called before heavy operation such as repack and
+    /// ``extract_many`` to avoid the container folder is malfunctional. This can also be called at
+    /// very begining of every CLI commands to make sure that operation are ready to proceed.
+    /// On the contrary, this should not be called for dense small operations (e.g. inside
+    /// ``insert_many`` or ``extract_many``) just for a tiny performance save (which matters).
     pub fn validate(&self) -> Result<&Self, Error> {
         if !self.path.exists() || Dir(&self.path).is_empty()? {
             return Err(Error::Uninitialized {

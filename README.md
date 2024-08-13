@@ -41,7 +41,13 @@ The `pack` operation will trigger the move from loose to packed store and result
 - The packed DB is the most important thing to migrate, all elements are read out and injected into the new embeded DB backend. (need to be careful about `size`, `raw_size` definition w.r.t to the legacy dos)
 - To do the migration, function as CLI command is provided. I also need to provide python wrapper so it can call from AiiDA.
 
+### `io_uring`
+
+TODO:
+
 ### File operation timeout
+
+**Deprecated design decision**: see `io_uring`
 
 Since I/O operiation is synchroues, operiations on large files will block thread. 
 No matter whether I use multithread (through `tokio::task::spawn_blocking` which is issuing a blocking call in general), I put a timeout to close the handler.
@@ -51,11 +57,15 @@ No matter whether I use multithread (through `tokio::task::spawn_blocking` which
 
 ### Blocking IO
 
+**Deprecated design decision**: see `io_uring`
+
 There is `tokio/fs` [1] that slap an asynchronous IO but Linux doesn't have non-blocking file I/O so it is blocking a thread somewhere anyway.
 Tokio will use ordinary blocking file operations behind the scenes by using `spawn_blocking` treadpool to run in background.
 
-Thus comes to the design, using one thread as default and spawning thread only when the global set for the async is turned on.
-Because of that, it is also consider to add timeout to the file operations. 
+~~Thus comes to the design, using one thread as default and spawning thread only when the global set for the async is turned on.~~
+~~Because of that, it is also consider to add timeout to the file operations.~~
+
+I am considering using `io-uring` so should not having blocking IO in the end.
 
 [1] https://docs.rs/tokio/latest/tokio/fs/index.html  
 
@@ -147,7 +157,7 @@ https://surana.wordpress.com/2009/01/01/numbers-everyone-should-know/
 - [x] packs correctly on adding new packs file
 - [x] loose -> Pack
 - [x] benchmark on loose -> Pack without compress (more than 3x times faster)
-- [ ] API redesign to make it ergonamic and idiomatic Rust
+- [ ] API redesign to make it ergonamic and idiomatic Rust [#7](https://github.com/unkcpz/rsdos/pull/7)
 - [ ] compression
 - [ ] benchmark on pack with compress
 - [ ] Use `sled` as k-v DB backend which should have better performance than sqlite [#1](https://github.com/unkcpz/rsdos/pull/1)
