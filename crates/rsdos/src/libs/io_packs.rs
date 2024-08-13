@@ -97,6 +97,14 @@ where
     })
 }
 
+/// ``extract_many`` fetch an interator of ``PObject`` from given hashkeys
+///
+/// NOTE: the return type declaration is not fully correct, the return iterator should live as long
+/// as at most of ``hashkeys`` iterator, but the return type means it live as long as at least of
+/// ``hashkeys``. It is subtle because of Rust impl trait problem, and will be changed in the
+/// future. See: the talk of [Impl Trait aka Look ma’, no generics! by Jon Gjengset](https://www.youtube.com/watch?v=CWiz_RtA1Hw&t=2230s) for how to correct
+/// it. I didn't implement the change because this function in this crate is usually called once
+/// therefore less likely hit the edge case that borrow checker will confuse from this.
 pub fn extract_many<'a, I>(
     hashkeys: I,
     cnt: &'a Container,
@@ -141,6 +149,9 @@ where
         std::iter::from_fn(move || {
             if let Some(row) = rows.pop() {
                 let pack_id = row.pack_id;
+                // XXX: I should not return Result for cnt.<subfolder>, instead better to valitate
+                // the cnt and then just return PathBuf. Then I can get rid of `unwrap` for some
+                // places.
                 let packs_path = cnt.packs().unwrap();
                 let loc = packs_path.join(format!("{pack_id}"));
                 let obj = PObject::new(
