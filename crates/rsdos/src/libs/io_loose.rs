@@ -57,9 +57,11 @@ pub fn insert<T>(source: T, cnt: &Container) -> Result<(u64, String), Error>
 where
     T: ReaderMaker,
 {
+    cnt.valid()?;
+
     // <cnt_path>/sandbox/<uuid> as dst
     let dst = format!("{}.tmp", uuid::Uuid::new_v4());
-    let dst = cnt.sandbox()?.join(dst);
+    let dst = cnt.sandbox().join(dst);
     let mut writer = fs::File::create(&dst)?;
 
     let mut hasher = Sha256::new();
@@ -81,7 +83,7 @@ where
     let hash = hasher.finalize();
     let hash_hex = hex::encode(hash);
 
-    let loose = cnt.loose()?;
+    let loose = cnt.loose();
     fs::create_dir_all(loose.join(format!("{}/", &hash_hex[..2])))?;
     let loose_dst = loose.join(format!("{}/{}", &hash_hex[..2], &hash_hex[2..]));
 
@@ -94,8 +96,10 @@ where
 }
 
 pub fn extract(hashkey: &str, cnt: &Container) -> Result<Option<LObject>, Error> {
+    cnt.valid()?;
+
     let loc = cnt
-        .loose()?
+        .loose()
         .join(format!("{}/{}", &hashkey[..2], &hashkey[2..]));
     if loc.exists() {
         let f = fs::File::open(&loc)?;

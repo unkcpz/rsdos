@@ -72,10 +72,11 @@ impl ReaderMaker for PObject {
 // file. For a single read, the reader can be returned (file with offset and size to read), and
 // then proceed with write to writer using buffer reader/writer.
 pub fn extract(hashkey: &str, cnt: &Container) -> Result<Option<PObject>, Error> {
-    let conn = Connection::open(cnt.packs_db()?)?;
+    cnt.valid()?;
+    let conn = Connection::open(cnt.packs_db())?;
     if let Some(pn) = db::select(&conn, hashkey)? {
         let pack_id = pn.pack_id;
-        let loc = cnt.packs()?.join(format!("{pack_id}"));
+        let loc = cnt.packs().join(format!("{pack_id}"));
         let obj = PObject::new(hashkey, loc, pn.offset, pn.raw_size, pn.size, pn.compressed);
         Ok(Some(obj))
     } else {
@@ -113,11 +114,13 @@ where
     I: IntoIterator + 'a,
     I::Item: ToString,
 {
+    cnt.valid()?;
+
     // TODO: make chunk size configuable
     let _max_chunk_iterate_length = 9500;
     let in_sql_max_length = 950;
 
-    let conn = Connection::open(cnt.packs_db()?)?;
+    let conn = Connection::open(cnt.packs_db())?;
     let chunked_iter = _chunked(hashkeys.into_iter(), in_sql_max_length);
 
     // XXX: why not work??
@@ -165,7 +168,7 @@ where
                 // XXX: I should not return Result for cnt.<subfolder>, instead better to valitate
                 // the cnt and then just return PathBuf. Then I can get rid of `unwrap` for some
                 // places.
-                let packs_path = cnt.packs().unwrap();
+                let packs_path = cnt.packs();
                 let loc = packs_path.join(format!("{pack_id}"));
                 let obj = PObject::new(
                     &row.hashkey,
@@ -242,13 +245,15 @@ where
     I: IntoIterator,
     I::Item: ReaderMaker,
 {
-    let mut conn = Connection::open(cnt.packs_db()?)?;
-    let packs = cnt.packs()?;
+    cnt.valid()?;
+
+    let mut conn = Connection::open(cnt.packs_db())?;
+    let packs = cnt.packs();
     let pack_size_target = cnt.config()?.pack_size_target;
 
     // cwp: current working pack
-    let mut cwp_id = find_current_pack_id(&cnt.packs()?, pack_size_target)?;
-    let cwp = cnt.packs()?.join(format!("{cwp_id}"));
+    let mut cwp_id = find_current_pack_id(&cnt.packs(), pack_size_target)?;
+    let cwp = cnt.packs().join(format!("{cwp_id}"));
     let mut cwp = fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -353,7 +358,7 @@ mod tests {
         let mut sbuf = String::new();
         let mut f0pack = fs::OpenOptions::new()
             .read(true)
-            .open(cnt.packs().unwrap().join("0"))
+            .open(cnt.packs().join("0"))
             .unwrap();
         f0pack.read_to_string(&mut sbuf).unwrap();
         assert_eq!(sbuf, "test 0");
@@ -378,7 +383,7 @@ mod tests {
         let mut sbuf = String::new();
         let mut f0pack = fs::OpenOptions::new()
             .read(true)
-            .open(cnt.packs().unwrap().join("0"))
+            .open(cnt.packs().join("0"))
             .unwrap();
         f0pack.read_to_string(&mut sbuf).unwrap();
         assert_eq!(sbuf, "test 0test 1");
@@ -396,7 +401,7 @@ mod tests {
 
         // create fack placeholder empty pack 0 and pack 1
         // it is expected that content will be added to pack1
-        let packs = cnt.packs().unwrap();
+        let packs = cnt.packs();
         fs::File::create(packs.join("0")).unwrap();
         fs::File::create(packs.join("1")).unwrap();
 
@@ -412,7 +417,7 @@ mod tests {
         let mut sbuf = String::new();
         let mut f0pack = fs::OpenOptions::new()
             .read(true)
-            .open(cnt.packs().unwrap().join("1"))
+            .open(cnt.packs().join("1"))
             .unwrap();
         f0pack.read_to_string(&mut sbuf).unwrap();
         assert_eq!(sbuf, "test 0");
@@ -430,7 +435,7 @@ mod tests {
         let pack_target_size = cnt.config().unwrap().pack_size_target;
 
         // snuck limit size of bytes into pack 1 and new bytes will go to pack 2
-        let packs = cnt.packs().unwrap();
+        let packs = cnt.packs();
         fs::File::create(packs.join("0")).unwrap();
         let mut p1 = fs::File::create(packs.join("1")).unwrap();
         let bytes_holder = vec![0u8; usize::try_from(pack_target_size).unwrap()];

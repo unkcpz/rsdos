@@ -14,12 +14,14 @@ fn extract_hash(loose_obj: &Path) -> String {
 
 // XXX: flag to set if do the validate, if no, use reguler writer not hash writer.
 pub fn pack_loose(cnt: &Container) -> anyhow::Result<()> {
+    cnt.valid()?;
+
     let mut loose_objs: Vec<PathBuf> = traverse_loose(cnt)
         .with_context(|| "traverse loose by iter")?
         .collect();
 
     // if objs in packs, remove it from Vec
-    let conn = Connection::open(cnt.packs_db()?)?;
+    let conn = Connection::open(cnt.packs_db())?;
     let mut stmt = conn.prepare("SELECT hashkey FROM db_object")?;
     let rows: Vec<_> = stmt
         .query([])?

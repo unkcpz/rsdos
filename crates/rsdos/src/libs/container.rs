@@ -69,7 +69,7 @@ impl Container {
             db::create(&db).with_context(|| format!("create db at {}", db.display()))?;
         } else {
             // is not empty, check if it is properly initialized
-            let cnt = self.validate()?;
+            let cnt = self.valid()?;
             anyhow::bail!("{} already initialized", cnt.path.display())
         }
 
@@ -77,7 +77,7 @@ impl Container {
     }
 
     pub fn config(&self) -> Result<Config, Error> {
-        let config_path = self.config_file()?;
+        let config_path = self.config_file();
         let config = fs::read_to_string(&config_path)?;
         let config = serde_json::from_str(&config)
             .map_err(|_| Error::ConfigFileError { path: config_path })?;
@@ -91,7 +91,7 @@ impl Container {
     /// very begining of every CLI commands to make sure that operation are ready to proceed.
     /// On the contrary, this should not be called for dense small operations (e.g. inside
     /// ``insert_many`` or ``extract_many``) just for a tiny performance save (which matters).
-    pub fn validate(&self) -> Result<&Self, Error> {
+    pub fn valid(&self) -> Result<&Self, Error> {
         if !self.path.exists() || Dir(&self.path).is_empty()? {
             return Err(Error::Uninitialized {
                 path: self.path.clone(),
@@ -107,7 +107,8 @@ impl Container {
         for entry in self.path.read_dir()? {
             let path = entry?.path();
             if let Some(filename) = path.file_name() {
-                match filename.to_string_lossy().as_ref() {
+                let filename = filename.to_string_lossy();
+                match filename.as_ref() {
                     LOOSE | PACKS | DUPLICATES | SANDBOX => {
                         if !path.is_dir() {
                             return Err(Error::StoreComponentError {
@@ -116,7 +117,7 @@ impl Container {
                             });
                         }
                     }
-                    CONFIG_FILE | PACKS_DB => {
+                    CONFIG_FILE => {
                         if !path.is_file() {
                             return Err(Error::StoreComponentError {
                                 path: self.path.clone(),
@@ -124,7 +125,14 @@ impl Container {
                             });
                         }
                     }
-                    // _ => unreachable!("unknow path {}", filename.to_string_lossy()),
+                    _ if filename.contains(PACKS_DB) => {
+                        if !path.is_file() {
+                            return Err(Error::StoreComponentError {
+                                path: self.path.clone(),
+                                cause: "not a file".to_string(),
+                            });
+                        }
+                    }
                     _ => Err(Error::DirectoryNotEmpty { path })?,
                 }
             }
@@ -133,64 +141,29 @@ impl Container {
         Ok(self)
     }
 
-    pub fn loose(&self) -> Result<PathBuf, Error> {
-        let path = Dir(&self.path).at_path(LOOSE);
-        if !path.exists() || !path.is_dir() {
-            return Err(Error::StoreComponentError {
-                path: self.path.clone(),
-                cause: "should be a dir".to_string(),
-            });
-        }
-
-        Ok(path)
+    #[must_use]
+    pub fn loose(&self) -> PathBuf {
+        Dir(&self.path).at_path(LOOSE)
     }
 
-    pub fn sandbox(&self) -> Result<PathBuf, Error> {
-        let path = Dir(&self.path).at_path(SANDBOX);
-        if !path.exists() || !path.is_dir() {
-            return Err(Error::StoreComponentError {
-                path: self.path.clone(),
-                cause: "should be a dir".to_string(),
-            });
-        }
-
-        Ok(path)
+    #[must_use]
+    pub fn sandbox(&self) -> PathBuf {
+        Dir(&self.path).at_path(SANDBOX)
     }
 
-    pub fn packs(&self) -> Result<PathBuf, Error> {
-        let path = Dir(&self.path).at_path(PACKS);
-        if !path.exists() || !path.is_dir() {
-            return Err(Error::StoreComponentError {
-                path: self.path.clone(),
-                cause: "should be a dir".to_string(),
-            });
-        }
-
-        Ok(path)
+    #[must_use]
+    pub fn packs(&self) -> PathBuf {
+        Dir(&self.path).at_path(PACKS)
     }
 
-    pub fn packs_db(&self) -> Result<PathBuf, Error> {
-        let path = Dir(&self.path).at_path(PACKS_DB);
-        if !path.exists() || !path.is_file() {
-            return Err(Error::StoreComponentError {
-                path: self.path.clone(),
-                cause: "should be a file".to_string(),
-            });
-        }
-
-        Ok(path)
+    #[must_use]
+    pub fn packs_db(&self) -> PathBuf {
+        Dir(&self.path).at_path(PACKS_DB)
     }
 
-    pub fn config_file(&self) -> Result<PathBuf, Error> {
-        let path = Dir(&self.path).at_path(CONFIG_FILE);
-        if !path.exists() || !path.is_file() {
-            return Err(Error::StoreComponentError {
-                path: self.path.clone(),
-                cause: "should be a file".to_string(),
-            });
-        }
-
-        Ok(path)
+    #[must_use]
+    pub fn config_file(&self) -> PathBuf {
+        Dir(&self.path).at_path(CONFIG_FILE)
     }
 }
 

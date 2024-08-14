@@ -78,7 +78,7 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::Status => {
             let cnt = Container::new(&cnt_path);
-            let cnt = match cnt.validate() {
+            let cnt = match cnt.valid() {
                 Ok(cnt) => cnt,
                 Err(e) => anyhow::bail!(e),
             };
@@ -107,7 +107,7 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::AddFiles { paths } => {
             let cnt = Container::new(&cnt_path);
-            let cnt = match cnt.validate() {
+            let cnt = match cnt.valid() {
                 Ok(cnt) => cnt,
                 Err(e) => anyhow::bail!(e),
             };

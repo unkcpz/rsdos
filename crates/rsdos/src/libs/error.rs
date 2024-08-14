@@ -22,7 +22,7 @@ pub enum Error {
     },
 
     // Container erors
-    #[error("Refusing to initialize in non-empty directory as '{}'", .path.display())]
+    #[error("Refusing to initialize in non-empty directory as '{}' in folder", .path.display())]
     DirectoryNotEmpty { path: PathBuf },
     #[error("Could not obtain the container directory at {}", .path.display())]
     UnableObtainDir { path: PathBuf },
