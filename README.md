@@ -1,6 +1,6 @@
 # rsdos
 
-The (r)u(s)ty  [`(d)isk-(o)bject(s)tore`](https://github.com/aiidateam/disk-objectstore).
+An efficient (r)u(s)ty  [`(d)isk-(o)bject(s)tore`](https://github.com/aiidateam/disk-objectstore).
 
 ## Design
 
@@ -160,12 +160,14 @@ https://surana.wordpress.com/2009/01/01/numbers-everyone-should-know/
 - [x] loose -> Pack
 - [x] benchmark on loose -> Pack without compress (more than 3x times faster)
 - [x] API redesign to make it ergonamic and idiomatic Rust [#7](https://github.com/unkcpz/rsdos/pull/7)
-- [x] compression (zlib)
-- [ ] benchmark on pack with compress
+- [x] compression (zlib) [#8](https://github.com/unkcpz/rsdos/pull/7)
+- [ ] benchmark on pack with compress [#9](https://github.com/unkcpz/rsdos/pull/7)
 - [ ] (v2) Use `sled` as k-v DB backend which should have better performance than sqlite [#1](https://github.com/unkcpz/rsdos/pull/1) 
 - [ ] (v2) `io_uring`
 - [ ] (v2) switch to using zstd instead of zlib
+- [ ] Dependency injection mode to attach progress bar to long run functions
 - [ ] docs as library
+- [ ] repack
 - [ ] optimize
 - [ ] validate
 - [ ] backup
@@ -176,5 +178,6 @@ https://surana.wordpress.com/2009/01/01/numbers-everyone-should-know/
 - [ ] generic Container interface that can host data in online storage (trait Container with insert/extract methods)
 - [ ] Add mutex to the pack write, panic when other thread is writing. (or io_uring take care of async?)
 - [ ] Make `Container` generic and natural to support online object storage.
-- [ ] Rename packs -> packed (V2)
+- [ ] (v2) Rename packs -> packed
+- [ ] migation plan and CLI tool
 - [ ] Explicit using buffer reader/writer to replace copy_by_chunk, need to symmetry use buf on reader and write for insert/extract. I need to decide in which timing to wrap reader as a BufReader, in `ReaderMaker` or in copy???

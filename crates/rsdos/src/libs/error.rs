@@ -44,6 +44,8 @@ pub enum Error {
     ChunkCopyError { source: std::io::Error },
     #[error("Unable to parse pack file name {}", .n)]
     ParsePackFilenameError { source: std::num::ParseIntError, n: String},
+    #[error("Unexpected checksum, expected: '{}' got: '{}'", .expected, .got)]
+    IntegrityError { expected: String, got: String},
 
     // db module erors
     #[error("rusqlite error")]

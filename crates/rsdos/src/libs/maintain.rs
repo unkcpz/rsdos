@@ -1,9 +1,8 @@
 use std::path::{Path, PathBuf};
 
-use anyhow::{self, Context};
 use rusqlite::Connection;
 
-use crate::{io_packs::insert_many, status::traverse_loose, Container};
+use crate::{io_packs::insert_many, status::traverse_loose, Container, Error};
 
 fn extract_hash(loose_obj: &Path) -> String {
     // use a bunch of unwrap, which should be save since operating under loose folder
@@ -13,12 +12,10 @@ fn extract_hash(loose_obj: &Path) -> String {
 }
 
 // XXX: flag to set if do the validate, if no, use reguler writer not hash writer.
-pub fn pack_loose(cnt: &Container) -> anyhow::Result<()> {
+pub fn pack_loose(cnt: &Container) -> Result<(), Error> {
     cnt.valid()?;
 
-    let mut loose_objs: Vec<PathBuf> = traverse_loose(cnt)
-        .with_context(|| "traverse loose by iter")?
-        .collect();
+    let mut loose_objs: Vec<PathBuf> = traverse_loose(cnt)?.collect();
 
     // if objs in packs, remove it from Vec
     let conn = Connection::open(cnt.packs_db())?;
@@ -26,7 +23,7 @@ pub fn pack_loose(cnt: &Container) -> anyhow::Result<()> {
     let rows: Vec<_> = stmt
         .query([])?
         .mapped(|row| row.get::<_, String>(0))
-        .map(|r| r.unwrap()) // TODO: decide to discard error finding or panic
+        .filter_map(std::result::Result::ok)
         .collect();
 
     loose_objs.retain(|obj| {
@@ -46,7 +43,12 @@ pub fn pack_loose(cnt: &Container) -> anyhow::Result<()> {
     // 1. content change for loose object (this should be checked independently for loose)
     // 2. loose -> pack is not proceed correctly. (this better to be checkd by cheap checksum)
     for (h1, h2) in got_hashkeys.iter().zip(expected_hashkeys.iter()) {
-        anyhow::ensure!(*h1 == *h2, format!("{} != {}", h1, h2));
+        if *h1 != *h2 {
+            return Err(Error::IntegrityError {
+                got: h1.to_string(),
+                expected: h2.to_string(),
+            });
+        }
     }
 
     Ok(())
@@ -56,9 +58,9 @@ pub fn pack_loose(cnt: &Container) -> anyhow::Result<()> {
 mod tests {
     use super::*;
 
-    use crate::{stat, test_utils::gen_tmp_container};
-    use crate::io_packs::extract as packs_extract;
     use crate::io_loose::insert as loose_insert;
+    use crate::io_packs::extract as packs_extract;
+    use crate::{stat, test_utils::gen_tmp_container};
     use std::collections::HashMap;
 
     #[test]
@@ -83,6 +85,34 @@ mod tests {
         let info = stat(&cnt).unwrap();
         assert_eq!(info.count.packs, n);
         assert_eq!(info.count.packs_file, n * 8 / 1024 + 1);
+
+        // read from packs
+        for (hash, content) in hash_content_map {
+            let obj = packs_extract(&hash, &cnt).unwrap().unwrap();
+            assert_eq!(String::from_utf8(obj.to_bytes().unwrap()).unwrap(), content);
+        }
+    }
+
+    #[test]
+    fn pack_loose_default_compress() {
+        let cnt = gen_tmp_container(1024, "zlib:+1").lock().unwrap();
+
+        // add 10 obj to loose
+        let mut hash_content_map: HashMap<String, String> = HashMap::new();
+        for i in 0..100 {
+            let content = format!("test {i}").repeat(i); // 8 bytes each
+            let buf = content.clone().into_bytes();
+            let (_, hash) = loose_insert(buf, &cnt).unwrap();
+            hash_content_map.insert(hash, content);
+        }
+
+        let info = stat(&cnt).unwrap();
+        assert_eq!(info.count.loose, 100);
+
+        pack_loose(&cnt).unwrap();
+
+        let info = stat(&cnt).unwrap();
+        assert_eq!(info.count.packs, 100);
 
         // read from packs
         for (hash, content) in hash_content_map {
