@@ -54,7 +54,7 @@ impl PyContainer {
         let file_like = PyFileLikeObject::with_requirements(stream, true, false, false, false)?;
         let stream = Stream { fl: file_like };
 
-        rsdos::push_to_loose(stream, &self.inner)
+        rsdos::io_loose::insert(stream, &self.inner)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))
     }
 
@@ -62,7 +62,7 @@ impl PyContainer {
         let file_like = PyFileLikeObject::with_requirements(stream, true, false, false, false)?;
         let stream = Stream { fl: file_like };
 
-        rsdos::push_to_packs(stream, &self.inner)
+        rsdos::io_packs::insert(stream, &self.inner)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))
     }
 
@@ -76,8 +76,8 @@ impl PyContainer {
             b.as_bytes().to_vec()
         });
 
-        let results = rsdos::io_packs::multi_push_to_packs(sources, &self.inner)?;
-        Ok(results)
+        rsdos::io_packs::insert_many(sources, &self.inner)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))
     }
 
     fn pack_loose(&self) -> PyResult<()> {
@@ -91,12 +91,14 @@ impl PyContainer {
         hashkeys
             .iter()
             .map(|hashkey| {
-                let content = match rsdos::pull_from_loose(hashkey, &self.inner).unwrap() {
-                    Some(mut obj) => {
+                let content = match rsdos::io_loose::extract(hashkey, &self.inner).unwrap() {
+                    Some(obj) => {
                         buf.clear();
+                        // XXX: no need of using Cursor should use buffer reader
                         let mut cursor = Cursor::new(&mut buf);
+                        let mut rdr = obj.make_reader().unwrap();
 
-                        std::io::copy(&mut obj.reader, &mut cursor).unwrap();
+                        std::io::copy(&mut rdr, &mut cursor).unwrap();
                         Some(buf.clone())
                     }
                     _ => None,
@@ -118,19 +120,17 @@ impl PyContainer {
         &self,
         hashkeys: Vec<String>,
     ) -> PyResult<HashMap<String, ByteString>> {
-        let mut objs = rsdos::io_packs::multi_pull_from_packs(&hashkeys, &self.inner)?;
-        let mut buf = Vec::new();
-        objs.retain(std::option::Option::is_some);
+        let objs = rsdos::io_packs::extract_many(&hashkeys, &self.inner)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))?;
 
         let res = objs
-            .iter_mut()
             .map(|obj| {
-                let obj = obj.as_mut().unwrap();
-                let hashkey = &obj.hashkey;
-                buf.clear();
-                let mut cursor = Cursor::new(&mut buf);
-                std::io::copy(&mut obj.reader, &mut cursor).unwrap();
-                (hashkey.to_owned(), buf.clone())
+                let hashkey = &obj.id;
+                let b = match obj.to_bytes() {
+                    Ok(b) => b,
+                    _ => b"".to_vec(), // Will this happened? should I just panic??
+                };
+                (hashkey.to_owned(), b)
             })
             .collect();
 
@@ -157,11 +157,16 @@ struct Stream {
 
 impl Stream {
     fn write_from_loose(cnt: &Container, hash: &str, py_filelike: Py<PyAny>) -> PyResult<()> {
-        if let Some(mut obj) = rsdos::pull_from_loose(hash, cnt)? {
+        if let Some(obj) = rsdos::io_loose::extract(hash, cnt)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))?
+        {
             match PyFileLikeObject::with_requirements(py_filelike, true, false, false, false) {
                 Ok(mut fl) => {
                     // copy from reader to writer
-                    std::io::copy(&mut obj.reader, &mut fl)?;
+                    let mut rdr = obj
+                        .make_reader()
+                        .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))?;
+                    std::io::copy(&mut rdr, &mut fl)?;
                     fl.rewind().unwrap();
                     Ok(())
                 }
@@ -173,11 +178,15 @@ impl Stream {
     }
 
     fn write_from_packs(cnt: &Container, hash: &str, py_filelike: Py<PyAny>) -> PyResult<()> {
-        if let Some(mut obj) = rsdos::pull_from_packs(hash, cnt)? {
+        if let Some(obj) = rsdos::io_packs::extract(hash, cnt)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))?
+        {
             match PyFileLikeObject::with_requirements(py_filelike, true, false, false, false) {
                 Ok(mut fl) => {
                     // copy from reader to writer
-                    std::io::copy(&mut obj.reader, &mut fl)?;
+                    let mut rdr = obj.make_reader()
+                        .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))?;
+                    std::io::copy(&mut rdr, &mut fl)?;
                     fl.rewind().unwrap();
                     Ok(())
                 }
@@ -190,8 +199,8 @@ impl Stream {
 }
 
 impl ReaderMaker for Stream {
-    fn make_reader(&self) -> impl Read {
-        self.fl.clone()
+    fn make_reader(&self) -> Result<impl Read, rsdos::Error> {
+        Ok(self.fl.clone())
     }
 }
 

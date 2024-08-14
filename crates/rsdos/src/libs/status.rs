@@ -39,7 +39,7 @@ pub fn traverse_loose(cnt: &Container) -> anyhow::Result<impl Iterator<Item = Pa
     // let spinnner = ProgressBar::new_spinner().with_message("Auditing container stat ...");
     // spinnner.enable_steady_tick(Duration::from_millis(500));
 
-    let loose = cnt.loose()?;
+    let loose = cnt.loose();
     Ok(loose
         .read_dir()?
         .filter_map(result::Result::ok)
@@ -59,7 +59,7 @@ fn traverse_packs(cnt: &Container) -> anyhow::Result<impl Iterator<Item = PathBu
     let spinnner = ProgressBar::new_spinner().with_message("Auditing container stat ...");
     spinnner.enable_steady_tick(Duration::from_millis(500));
 
-    let packs = cnt.packs()?;
+    let packs = cnt.packs();
     Ok(packs
         .read_dir()
         .with_context(|| format!("not able to read dir {}", packs.display()))?
@@ -70,8 +70,10 @@ fn traverse_packs(cnt: &Container) -> anyhow::Result<impl Iterator<Item = PathBu
 }
 
 pub fn stat(cnt: &Container) -> anyhow::Result<ContainerInfo> {
+    cnt.valid()?;
+
     // Read config.json
-    let config_path = cnt.config_file()?;
+    let config_path = cnt.config_file();
     let config = fs::File::open(&config_path).map_err(|err| config::Error::ConfigFileRead {
         source: err,
         path: config_path.clone(),
@@ -95,7 +97,7 @@ pub fn stat(cnt: &Container) -> anyhow::Result<ContainerInfo> {
             });
 
     // packs info from db
-    let packs_db = cnt.packs_db()?;
+    let packs_db = cnt.packs_db();
     let packs_db_size = fs::metadata(&packs_db)?.len();
     let (packs_count, packs_size) = db::stats(&packs_db)?;
 

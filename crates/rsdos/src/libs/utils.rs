@@ -1,27 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
-pub enum Error {
-    #[error("Could not obtain the current directory")]
-    CurrentDir(#[from] std::io::Error),
-    #[error("Could not open data at '{}'", .path.display())]
-    IoOpen {
-        source: std::io::Error,
-        path: PathBuf,
-    },
-    #[error("Could not write data at '{}'", .path.display())]
-    IoWrite {
-        source: std::io::Error,
-        path: PathBuf,
-    },
-    #[error("Could not create directory at '{}'", .path.display())]
-    CreateDirectory {
-        source: std::io::Error,
-        path: PathBuf,
-    },
-}
+use crate::Error;
+
 
 pub fn create_dir(p: &Path) -> Result<(), Error> {
     fs::create_dir_all(p).map_err(|e| Error::CreateDirectory {
@@ -40,17 +21,15 @@ impl<'a> Dir<'a> {
         Ok(())
     }
 
+    #[must_use]
     pub fn at_path(self, component: &str) -> PathBuf {
         let mut file = self.0.clone();
         file.push(component);
         file
     }
 
-    pub fn is_empty(self) -> Result<bool, Error> {
-        let mut entries = fs::read_dir(self.0.clone()).map_err(|e| Error::IoOpen {
-            source: e,
-            path: self.0.clone(),
-        })?;
+    pub fn is_empty(self) -> Result<bool, std::io::Error> {
+        let mut entries = fs::read_dir(self.0.clone())?;
         Ok(entries.next().is_none())
     }
 }

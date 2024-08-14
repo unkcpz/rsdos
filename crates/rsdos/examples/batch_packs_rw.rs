@@ -28,7 +28,7 @@ fn main() -> anyhow::Result<()> {
                     let content = "test".repeat(i as usize);
                     let bstring = content.as_bytes().to_vec();
 
-                    rsdos::push_to_packs(bstring, &cnt)?;
+                    rsdos::io_packs::insert(bstring, &cnt)?;
                 }
             }
             "purge" => {
@@ -46,7 +46,7 @@ fn main() -> anyhow::Result<()> {
                         hex::encode(hashkey)
                     })
                     .collect();
-                let _ = rsdos::io_packs::multi_pull_from_packs(&hashkeys, &cnt)?;
+                let _ = rsdos::io_packs::extract_many(&hashkeys, &cnt)?;
             }
             _ => anyhow::bail!("unknown flag `{}`, expect `purge`, `bench` or `reset`", arg),
         }

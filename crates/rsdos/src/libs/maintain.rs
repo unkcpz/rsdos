@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{self, Context};
 use rusqlite::Connection;
 
-use crate::{io_packs::multi_push_to_packs, status::traverse_loose, Container};
+use crate::{io_packs::insert_many, status::traverse_loose, Container};
 
 fn extract_hash(loose_obj: &Path) -> String {
     // use a bunch of unwrap, which should be save since operating under loose folder
@@ -14,12 +14,14 @@ fn extract_hash(loose_obj: &Path) -> String {
 
 // XXX: flag to set if do the validate, if no, use reguler writer not hash writer.
 pub fn pack_loose(cnt: &Container) -> anyhow::Result<()> {
+    cnt.valid()?;
+
     let mut loose_objs: Vec<PathBuf> = traverse_loose(cnt)
         .with_context(|| "traverse loose by iter")?
         .collect();
 
     // if objs in packs, remove it from Vec
-    let conn = Connection::open(cnt.packs_db()?)?;
+    let conn = Connection::open(cnt.packs_db())?;
     let mut stmt = conn.prepare("SELECT hashkey FROM db_object")?;
     let rows: Vec<_> = stmt
         .query([])?
@@ -33,9 +35,9 @@ pub fn pack_loose(cnt: &Container) -> anyhow::Result<()> {
     });
     let expected_hashkeys: Vec<_> = loose_objs.iter().map(|obj| extract_hash(obj)).collect();
 
-    let nbytes_hashkeys = multi_push_to_packs(loose_objs, cnt)?;
+    let nbytes_hashkeys = insert_many(loose_objs, cnt)?;
     let got_hashkeys: Vec<_> = nbytes_hashkeys
-        .iter()
+        .into_iter()
         .map(|(_, hashkey)| hashkey.clone())
         .collect();
 
@@ -54,8 +56,10 @@ pub fn pack_loose(cnt: &Container) -> anyhow::Result<()> {
 mod tests {
     use super::*;
 
-    use crate::{pull_from_packs, push_to_loose, stat, test_utils::gen_tmp_container};
-    use std::{collections::HashMap, io::Read};
+    use crate::{stat, test_utils::gen_tmp_container};
+    use crate::io_packs::extract as packs_extract;
+    use crate::io_loose::insert as loose_insert;
+    use std::collections::HashMap;
 
     #[test]
     fn pack_loose_default() {
@@ -67,7 +71,7 @@ mod tests {
         for i in 0..n {
             let content = format!("test {i:03}"); // 8 bytes each
             let buf = content.clone().into_bytes();
-            let (_, hash) = push_to_loose(buf, &cnt).unwrap();
+            let (_, hash) = loose_insert(buf, &cnt).unwrap();
             hash_content_map.insert(hash, content);
         }
 
@@ -82,10 +86,8 @@ mod tests {
 
         // read from packs
         for (hash, content) in hash_content_map {
-            let obj = pull_from_packs(&hash, &cnt).unwrap();
-            let mut sbuf = String::new();
-            obj.unwrap().reader.read_to_string(&mut sbuf).unwrap();
-            assert_eq!(sbuf, content);
+            let obj = packs_extract(&hash, &cnt).unwrap().unwrap();
+            assert_eq!(String::from_utf8(obj.to_bytes().unwrap()).unwrap(), content);
         }
     }
 }

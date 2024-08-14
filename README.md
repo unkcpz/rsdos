@@ -11,12 +11,15 @@ The (r)u(s)ty  [`(d)isk-(o)bject(s)tore`](https://github.com/aiidateam/disk-obje
 - `insert` and `insert_many` for insert single or many objects to container.
 - `extract` and `extract_many` for extract single or many objects from container.
 - `insert_many` and `extract_many` should both using iterator as input/output since the number of objects can be huge. Meanwhile using iterator helps with buffer management on rw large amount of files.
+- For the container, it should implement `insert`, `extract`, `insert_many` and `extract_many`. That requires loose has `insert_many` implemented from `insert` and be the method for the container.
 - Since insert/extract can interact with either loose or packed store, I use enum-based strategy.
 - naming convention are `loose` and `packed`. To compatible with legacy dos, if legacy container exist, `packs` is also valid.
 - `pack` is the operation to move objects from loose to packed store. It calling `insert_many` to packed store since no overhead on DB openning/closing. 
 - `repack` is on packed store and do the `pack` again using `sandbox` folder.
 - Besides the `pack` and `repack` cases above, `insert_many` to packed store should not exposed to normal user. 
 - To make `Container` a generic type, things that implement `insert`, `extract`, `insert_many` and `extract_many` should be a Container no matter it is local or not. 
+- hashkey servers two purpose: 1. as the id of the object stored, this need to use sha256 to avoid duplicate 2. as the checksum to see if the lazy object read is valid, for this purpose can use cheap checksum.
+- For the Packed objects, `raw_size` is the uncompressed size while `size` is the compressed size occupied the packed file, this different from legacy dos which `length` is the compressed size occupied in packed file.
 
 #### Py wrapper
 
@@ -35,10 +38,16 @@ The `pack` operation will trigger the move from loose to packed store and result
 
 - The loose is the same, `packs` need to rename to `packed`.
 - The `config.json` will contain more information so use default to fill the missing field.
-- The packed DB is the most important thing to migrate, all elements are read out and injected into the new embeded DB backend.
+- The packed DB is the most important thing to migrate, all elements are read out and injected into the new embeded DB backend. (need to be careful about `size`, `raw_size` definition w.r.t to the legacy dos)
 - To do the migration, function as CLI command is provided. I also need to provide python wrapper so it can call from AiiDA.
 
+### `io_uring`
+
+TODO:
+
 ### File operation timeout
+
+**Deprecated design decision**: see `io_uring`
 
 Since I/O operiation is synchroues, operiations on large files will block thread. 
 No matter whether I use multithread (through `tokio::task::spawn_blocking` which is issuing a blocking call in general), I put a timeout to close the handler.
@@ -48,11 +57,15 @@ No matter whether I use multithread (through `tokio::task::spawn_blocking` which
 
 ### Blocking IO
 
+**Deprecated design decision**: see `io_uring`
+
 There is `tokio/fs` [1] that slap an asynchronous IO but Linux doesn't have non-blocking file I/O so it is blocking a thread somewhere anyway.
 Tokio will use ordinary blocking file operations behind the scenes by using `spawn_blocking` treadpool to run in background.
 
-Thus comes to the design, using one thread as default and spawning thread only when the global set for the async is turned on.
-Because of that, it is also consider to add timeout to the file operations. 
+~~Thus comes to the design, using one thread as default and spawning thread only when the global set for the async is turned on.~~
+~~Because of that, it is also consider to add timeout to the file operations.~~
+
+I am considering using `io-uring` so should not having blocking IO in the end.
 
 [1] https://docs.rs/tokio/latest/tokio/fs/index.html  
 
@@ -144,7 +157,7 @@ https://surana.wordpress.com/2009/01/01/numbers-everyone-should-know/
 - [x] packs correctly on adding new packs file
 - [x] loose -> Pack
 - [x] benchmark on loose -> Pack without compress (more than 3x times faster)
-- [ ] API redesign to make it ergonamic and idiomatic Rust
+- [ ] API redesign to make it ergonamic and idiomatic Rust [#7](https://github.com/unkcpz/rsdos/pull/7)
 - [ ] compression
 - [ ] benchmark on pack with compress
 - [ ] Use `sled` as k-v DB backend which should have better performance than sqlite [#1](https://github.com/unkcpz/rsdos/pull/1)

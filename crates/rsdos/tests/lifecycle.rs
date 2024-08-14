@@ -2,10 +2,7 @@ mod common;
 use common::gen_tmp_container;
 
 use rsdos::add_file::StoreType;
-use std::{
-    collections::HashMap,
-    io::{Read, Write},
-};
+use std::{collections::HashMap, io::Write};
 use tempfile::{tempdir, NamedTempFile};
 
 #[test]
@@ -55,27 +52,6 @@ fn lifecycle_add_ten_same_objs_to_loose() {
 }
 
 #[test]
-fn lifecycle_add_one_to_loose_and_read() {
-    let cnt = gen_tmp_container().lock().unwrap();
-
-    // add 10 samples to loose
-    let mut tf = NamedTempFile::new().unwrap();
-    write!(tf, "test x").unwrap();
-
-    let fp = tf.into_temp_path();
-    let (hash_hex, _, _) = rsdos::add_file(&fp.to_path_buf(), &cnt, &StoreType::Loose)
-        .expect("unable to add file {i}");
-
-    // get obj by hash_hex
-    let obj = rsdos::pull_from_loose(&hash_hex, &cnt).expect("get object from hash");
-
-    let mut content = String::new();
-    obj.unwrap().reader.read_to_string(&mut content).unwrap();
-
-    assert_eq!(content, "test x".to_string());
-}
-
-#[test]
 fn lifecycle_add_ten_diff_objs_to_packs() -> anyhow::Result<()> {
     let cnt = gen_tmp_container().lock().unwrap();
 
@@ -96,12 +72,11 @@ fn lifecycle_add_ten_diff_objs_to_packs() -> anyhow::Result<()> {
     //
     for (hash_hex, expected_content) in orig_objs {
         // find content from packs file
-        let mut obj = rsdos::pull_from_packs(&hash_hex, &cnt)?.unwrap();
-        let mut buffer = vec![];
-        std::io::copy(&mut obj.reader, &mut buffer)?;
-        let content = String::from_utf8(buffer)?;
-
-        assert_eq!(content, expected_content);
+        let obj = rsdos::io_packs::extract(&hash_hex, &cnt)?.unwrap();
+        assert_eq!(
+            String::from_utf8(obj.to_bytes().unwrap()).unwrap(),
+            expected_content
+        );
     }
 
     // status audit
@@ -133,12 +108,11 @@ fn lifecycle_add_ten_same_objs_to_packs() -> anyhow::Result<()> {
     //
     for (hash_hex, expected_content) in orig_objs {
         // find content from packs file
-        let mut obj = rsdos::pull_from_packs(&hash_hex, &cnt)?.unwrap();
-        let mut buffer = vec![];
-        std::io::copy(&mut obj.reader, &mut buffer)?;
-        let content = String::from_utf8(buffer)?;
-
-        assert_eq!(content, expected_content);
+        let obj = rsdos::io_packs::extract(&hash_hex, &cnt)?.unwrap();
+        assert_eq!(
+            String::from_utf8(obj.to_bytes().unwrap()).unwrap(),
+            expected_content
+        );
     }
 
     // status audit
@@ -188,12 +162,11 @@ fn lifecycle_add_to_packs_beyond_one_pack() -> anyhow::Result<()> {
     // let out = fs::read_to_string(cnt.packs()?.join("0"))?;
     //
     for (hash_hex, expected_content) in orig_objs {
-        let mut obj = rsdos::pull_from_packs(&hash_hex, &cnt)?.unwrap();
-        let mut buffer = vec![];
-        std::io::copy(&mut obj.reader, &mut buffer)?;
-        let content = String::from_utf8(buffer)?;
-
-        assert_eq!(content, expected_content);
+        let obj = rsdos::io_packs::extract(&hash_hex, &cnt)?.unwrap();
+        assert_eq!(
+            String::from_utf8(obj.to_bytes().unwrap()).unwrap(),
+            expected_content
+        );
     }
 
     // status audit

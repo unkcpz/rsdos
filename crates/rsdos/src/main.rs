@@ -2,10 +2,11 @@ use anyhow::Context;
 use clap::{Parser, Subcommand};
 use human_bytes::human_bytes;
 use rsdos::add_file::StoreType;
+use rsdos::io::ReaderMaker;
 use rsdos::{config::Config, utils::create_dir, Container};
 use std::{env, fmt::Debug, path::PathBuf};
 
-use std::io::{self, Write};
+use std::io::{self, BufReader, Write};
 
 /// Simple program to greet a person
 #[derive(Parser, Debug)]
@@ -77,7 +78,7 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::Status => {
             let cnt = Container::new(&cnt_path);
-            let cnt = match cnt.validate() {
+            let cnt = match cnt.valid() {
                 Ok(cnt) => cnt,
                 Err(e) => anyhow::bail!(e),
             };
@@ -106,7 +107,7 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::AddFiles { paths } => {
             let cnt = Container::new(&cnt_path);
-            let cnt = match cnt.validate() {
+            let cnt = match cnt.valid() {
                 Ok(cnt) => cnt,
                 Err(e) => anyhow::bail!(e),
             };
@@ -135,14 +136,15 @@ fn main() -> anyhow::Result<()> {
         Commands::CatFile { object_hash } => {
             // XXX: flag that support directly push to packs
             let cnt = rsdos::Container::new(&cnt_path);
-            let obj = rsdos::pull_from_loose(&object_hash, &cnt)?;
+            let obj = rsdos::io_loose::extract(&object_hash, &cnt)?;
             match obj {
-                Some(mut obj) => {
-                    let n = std::io::copy(&mut obj.reader, &mut std::io::stdout())
+                Some(obj) => {
+                    let mut buf_rdr = BufReader::new(obj.make_reader()?); 
+                    let n = std::io::copy(&mut buf_rdr, &mut std::io::stdout())
                         .with_context(|| "write object to stdout")?;
 
                     anyhow::ensure!(
-                        n == obj.expected_size as u64,
+                        n == obj.expected_size,
                         "file was not the expecwed size, expected: {}, got: {}",
                         obj.expected_size,
                         n

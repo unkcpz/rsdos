@@ -37,7 +37,7 @@ fn main() -> anyhow::Result<()> {
                             let content = "test".repeat(i as usize);
                             let bstring = content.as_bytes().to_vec();
 
-                            rsdos::push_to_loose(bstring, &cnt)?;
+                            rsdos::io_loose::insert(bstring, &cnt)?;
                         }
                     }
                     "pull" => {
@@ -49,7 +49,7 @@ fn main() -> anyhow::Result<()> {
                             let hashkey = &hasher.finalize_reset();
                             let hashkey = hex::encode(hashkey);
 
-                            let _ = rsdos::io_loose::pull_from_loose(&hashkey, &cnt)?;
+                            let _ = rsdos::io_loose::extract(&hashkey, &cnt)?;
                         }
                     }
                     _ => anyhow::bail!("unknown flag `{}`, expect `push`, `pull`", arg2),
