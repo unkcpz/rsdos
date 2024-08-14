@@ -1,4 +1,4 @@
-use rusqlite::{params, params_from_iter, Connection, ToSql};
+use rusqlite::{params, params_from_iter, Connection};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::{self, Read, Seek, SeekFrom};
@@ -111,7 +111,7 @@ pub fn extract_many<'a, I>(
 ) -> Result<impl Iterator<Item = PObject> + 'a, Error>
 where
     I: IntoIterator + 'a,
-    I::Item: ToSql,
+    I::Item: ToString,
 {
     // TODO: make chunk size configuable
     let _max_chunk_iterate_length = 9500;
@@ -119,12 +119,24 @@ where
 
     let conn = Connection::open(cnt.packs_db()?)?;
     let chunked_iter = _chunked(hashkeys.into_iter(), in_sql_max_length);
+
+    // XXX: why not work??
+    // let chunked_iter = std::iter::from_fn(move || {
+    //     let chunk: Vec<_> = hashkeys.into_iter().by_ref().take(in_sql_max_length).collect();
+    //     if chunk.is_empty() {
+    //         None
+    //     } else {
+    //         Some(chunk)
+    //     }
+    // });
+
     // NOTE: I believe when yield is available in rust (https://without.boats/blog/a-four-year-plan/)
     // this can be more straightforward implemented. I was quite struggle with the ownership here
-    // and have to use move for both `chunk` and inner iterator. 
+    // and have to use move for both `chunk` and inner iterator.
     let iter_vec = chunked_iter.flat_map(move |chunk| {
         let placeholders: Vec<&str> = (0..chunk.len()).map(|_| "?").collect();
         let mut stmt = conn.prepare_cached(&format!("SELECT hashkey, compressed, size, offset, length, pack_id FROM db_object WHERE hashkey IN ({})", placeholders.join(","))).unwrap();
+        let chunk = chunk.into_iter().map(|x| x.to_string());
         let rows = stmt
             .query_map(params_from_iter(chunk), |row| {
                 let hashkey: String = row.get(0)?;
