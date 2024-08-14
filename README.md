@@ -20,6 +20,7 @@ The (r)u(s)ty  [`(d)isk-(o)bject(s)tore`](https://github.com/aiidateam/disk-obje
 - To make `Container` a generic type, things that implement `insert`, `extract`, `insert_many` and `extract_many` should be a Container no matter it is local or not. 
 - hashkey servers two purpose: 1. as the id of the object stored, this need to use sha256 to avoid duplicate 2. as the checksum to see if the lazy object read is valid, for this purpose can use cheap checksum.
 - For the Packed objects, `raw_size` is the uncompressed size while `size` is the compressed size occupied the packed file, this different from legacy dos which `length` is the compressed size occupied in packed file.
+- Only support one compression library, for V1 that is zlib, for V2 use zstd.
 
 #### Py wrapper
 

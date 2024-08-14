@@ -27,6 +27,11 @@ enum Commands {
         /// Pack size (in GiB)
         #[arg(short, long, default_value_t = 4, value_name = "PACK_SIZE")]
         pack_size: u64,
+        
+        /// Compression algorithm none for not compressing data or 
+        /// (format: <zalgo>:<level>, such as: zlib:+1 or zstd:-2)
+        #[arg(short, long, default_value = "zstd:+1", value_name = "COMPRESSION")]
+        compression: String,
     },
 
     /// Get the status of container
@@ -64,13 +69,13 @@ fn main() -> anyhow::Result<()> {
     let cnt_path = args.path.unwrap_or(env::current_dir()?.join("container"));
 
     match args.cmd {
-        Commands::Init { pack_size } => {
+        Commands::Init { pack_size, compression } => {
             // if target not exist create folder
             if !cnt_path.exists() {
                 create_dir(&cnt_path)?;
             }
 
-            let config = Config::new(pack_size);
+            let config = Config::new(pack_size, &compression);
             let cnt = Container::new(&cnt_path);
             cnt.initialize(&config).with_context(|| {
                 format!("unable to initialize container at {}", cnt.path.display())

@@ -133,7 +133,7 @@ fn lifecycle_add_to_packs_beyond_one_pack() -> anyhow::Result<()> {
 
     // Create a container with single pack target 1024 bytes
     let size_in_bytes = 1024;
-    let config = rsdos::Config::new(size_in_bytes);
+    let config = rsdos::Config::new(size_in_bytes, "none");
 
     let cnt = rsdos::Container::new(cnt_path);
     cnt.initialize(&config)

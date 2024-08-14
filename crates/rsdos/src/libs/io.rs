@@ -44,7 +44,7 @@ pub fn copy_by_chunk<R, W>(
     reader: &mut R,
     writer: &mut W,
     chunk_size: usize,
-) -> Result<usize, std::io::Error>
+) -> Result<u64, std::io::Error>
 where
     R: Read,
     W: Write,
@@ -64,7 +64,7 @@ where
     }
 
     writer.flush()?;
-    Ok(total_bytes_read)
+    Ok(total_bytes_read as u64)
 }
 
 pub trait ReaderMaker {

@@ -6,7 +6,7 @@ fn main() -> anyhow::Result<()> {
     fs::create_dir_all(&cnt_path)?;
     let n = 5000;
     let pack_target_size = 4 * 1024;
-    let config = rsdos::Config::new(pack_target_size);
+    let config = rsdos::Config::new(pack_target_size, "none");
 
     let cnt = rsdos::Container::new(cnt_path);
     let args: Vec<String> = std::env::args().collect();

@@ -34,6 +34,8 @@ pub enum Error {
     },
     #[error("Could not reach {}: {cause}", .path.display())]
     StoreComponentError { path: PathBuf, cause: String },
+    #[error("Could not parst {} to compression algorithm", .s)]
+    ParseCompressionError { s: String },
 
     // io module errors
     #[error("Unexpected size in copy: expect {} got {}", .expected, .got)]

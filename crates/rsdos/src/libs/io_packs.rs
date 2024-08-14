@@ -1,12 +1,13 @@
+use flate2;
 use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
-use flate2::Compression;
 use rusqlite::{params, params_from_iter, Connection};
 use sha2::{Digest, Sha256};
-use std::fs;
-use std::io::{self, Read, Seek, SeekFrom};
+use std::fs::{self, File};
+use std::io::{self, Read, Seek, SeekFrom, Take};
 use std::path::{Path, PathBuf};
 
+use crate::container::Compression;
 use crate::db::PackEntry;
 use crate::io::{copy_by_chunk, ByteString, HashWriter, ReaderMaker};
 use crate::{db, Container};
@@ -49,7 +50,7 @@ impl PObject {
     pub fn to_bytes(&self) -> Result<ByteString, Error> {
         let mut rdr = self.make_reader()?;
         let mut buf = vec![];
-        let n = std::io::copy(&mut rdr, &mut buf)?;
+        let _ = std::io::copy(&mut rdr, &mut buf)?;
         // // FIXME: no more valid if read and write size is different after compression
         // if n == self.raw_size {
         //     Ok(buf)
@@ -59,8 +60,22 @@ impl PObject {
         //         got: n,
         //     })
         // }
-        
+
         Ok(buf)
+    }
+}
+
+enum PReader {
+    Uncompressed(Take<File>),
+    Zlib(ZlibDecoder<Take<File>>),
+}
+
+impl Read for PReader {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        match self {
+            PReader::Zlib(inner) => inner.read(buf),
+            PReader::Uncompressed(inner) => inner.read(buf),
+        }
     }
 }
 
@@ -68,8 +83,14 @@ impl ReaderMaker for PObject {
     fn make_reader(&self) -> Result<impl Read, crate::Error> {
         let mut f = fs::OpenOptions::new().read(true).open(&self.loc)?;
         f.seek(SeekFrom::Start(self.offset))?;
-        let rdr = ZlibDecoder::new(f.take(self.size));
-        Ok(rdr)
+        // NOTE: V2 should add support to zstd
+        if self.compressed {
+            let rdr = PReader::Zlib(ZlibDecoder::new(f.take(self.size)));
+            Ok(rdr)
+        } else {
+            let rdr = PReader::Uncompressed(f.take(self.size));
+            Ok(rdr)
+        }
     }
 }
 
@@ -304,23 +325,40 @@ where
             // None. The method is from ReaderMaker and calling rmaker.expected_hash(). If the hash
             // already exist and do not need to run validation, the writer can be normal writer without
             // hash.
-            
+
             // The buff (when calling `copy_by_chunk`) is created from reader (e.g. the original data) so does not matter
             // HashWriter wraps Compression Writer or v.v.
-            let level = 1; // TODO: read from config
-            let mut zwriter = ZlibEncoder::new(&cwp, Compression::new(level));
-            let mut writer = HashWriter::new(&mut zwriter, &mut hasher);
-            let mut stream = rmaker.make_reader()?;
-            let _ = copy_by_chunk(&mut stream, &mut writer, chunk_size)?;
-            let (bytes_read, bytes_write) = (zwriter.total_in(), zwriter.total_out());
+            let (bytes_read, bytes_write, hash_hex, compressed) = match cnt.compression()? {
+                Compression::Uncompressed => {
+                    let mut writer = HashWriter::new(&mut cwp, &mut hasher);
+                    let mut stream = rmaker.make_reader()?;
+                    let bytes_copied = copy_by_chunk(&mut stream, &mut writer, chunk_size)?;
 
-            let hash = hasher.finalize_reset();
-            let hash_hex = hex::encode(hash);
+                    let hash = hasher.finalize_reset();
+                    let hash_hex = hex::encode(hash);
+                    (bytes_copied, bytes_copied, hash_hex, false)
+                }
+                Compression::Zlib(level) => {
+                    let mut zwriter = ZlibEncoder::new(&cwp, flate2::Compression::new(level));
+                    let mut writer = HashWriter::new(&mut zwriter, &mut hasher);
+                    let mut stream = rmaker.make_reader()?;
+                    let _ = copy_by_chunk(&mut stream, &mut writer, chunk_size)?;
+
+                    let (bytes_read, bytes_write) = (zwriter.total_in(), zwriter.total_out());
+
+                    let hash = hasher.finalize_reset();
+                    let hash_hex = hex::encode(hash);
+                    (bytes_read, bytes_write, hash_hex, true)
+                }
+                Compression::Zstd(_) => {
+                    todo!()
+                }
+            };
 
             let mut stmt = tx.prepare_cached("INSERT OR IGNORE INTO db_object (hashkey, compressed, size, offset, length, pack_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
             stmt.execute(params![
                 &hash_hex,
-                false,
+                compressed,
                 bytes_read,
                 offset,
                 bytes_write,
@@ -358,7 +396,7 @@ mod tests {
 
     #[test]
     fn io_packs_insert_0_when_empty() {
-        let cnt = gen_tmp_container(PACK_TARGET_SIZE).lock().unwrap();
+        let cnt = gen_tmp_container(PACK_TARGET_SIZE, "none").lock().unwrap();
 
         let bstr: ByteString = b"test 0".to_vec();
         let (_, hash) = insert(bstr, &cnt).unwrap();
@@ -395,7 +433,7 @@ mod tests {
 
     #[test]
     fn io_packs_insert_1_when_1_exist() {
-        let cnt = gen_tmp_container(PACK_TARGET_SIZE).lock().unwrap();
+        let cnt = gen_tmp_container(PACK_TARGET_SIZE, "none").lock().unwrap();
 
         // create fack placeholder empty pack 0 and pack 1
         // it is expected that content will be added to pack1
@@ -421,7 +459,7 @@ mod tests {
 
     #[test]
     fn io_packs_insert_2_when_1_reach_limit() {
-        let cnt = gen_tmp_container(PACK_TARGET_SIZE).lock().unwrap();
+        let cnt = gen_tmp_container(PACK_TARGET_SIZE, "none").lock().unwrap();
         let pack_target_size = cnt.config().unwrap().pack_size_target;
 
         // snuck limit size of bytes into pack 1 and new bytes will go to pack 2
@@ -456,7 +494,7 @@ mod tests {
 
     #[test]
     fn io_packs_extract_from_any_single() {
-        let cnt = gen_tmp_container(6400).lock().unwrap();
+        let cnt = gen_tmp_container(6400, "none").lock().unwrap();
         let n = 100;
 
         let mut hash_content_map: HashMap<String, String> = HashMap::new();
@@ -481,7 +519,7 @@ mod tests {
 
     #[test]
     fn io_packs_extract_many() {
-        let cnt = gen_tmp_container(64).lock().unwrap();
+        let cnt = gen_tmp_container(64, "none").lock().unwrap();
 
         let mut hash_content_map: HashMap<String, String> = HashMap::new();
         for i in 0..100 {
@@ -493,6 +531,46 @@ mod tests {
 
         let info = stat(&cnt).unwrap();
         assert_eq!(info.count.packs_file, 10);
+        assert_eq!(info.count.packs, 100);
+
+        let mut hashkeys = hash_content_map
+            .keys()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        // add two random hashkeys that will not be found therefore will not influence the result
+        hashkeys
+            .push("68e2056a0496c469727fa5ab041e1778e39137643fd24db94dd7a532db17aaba".to_string());
+        hashkeys
+            .push("7e76df6ac7d08a837f7212e765edd07333c8159ffa0484bc26394e7ffd898817".to_string());
+
+        let objs = extract_many(&hashkeys, &cnt).unwrap();
+
+        let mut count = 0;
+        for obj in objs {
+            count += 1;
+            let content = hash_content_map.get(&obj.id).unwrap();
+            assert_eq!(
+                String::from_utf8(obj.to_bytes().unwrap()).unwrap(),
+                content.to_owned()
+            );
+        }
+        assert_eq!(count + 2, hashkeys.len());
+    }
+
+    #[test]
+    fn io_packs_extract_many_compression() {
+        let cnt = gen_tmp_container(64, "zlib:+1").lock().unwrap();
+
+        let mut hash_content_map: HashMap<String, String> = HashMap::new();
+        for i in 0..100 {
+            let content = format!("test {i}");
+            let buf = content.clone().into_bytes();
+            let (_, hash) = insert(buf, &cnt).unwrap();
+            hash_content_map.insert(hash, content);
+        }
+
+        let info = stat(&cnt).unwrap();
+        assert_eq!(info.count.packs_file, 26);
         assert_eq!(info.count.packs, 100);
 
         let mut hashkeys = hash_content_map

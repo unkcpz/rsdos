@@ -4,6 +4,7 @@ use serde_json::to_string_pretty;
 use crate::Error;
 use crate::{config::Config, db, utils::Dir};
 use core::panic;
+use std::str::FromStr;
 use std::{
     fs,
     io::Write,
@@ -22,11 +23,56 @@ const PACKS: &str = "packs";
 const DUPLICATES: &str = "duplicates";
 const SANDBOX: &str = "sandbox";
 
+#[derive(Debug, PartialEq)]
+pub enum Compression {
+    Zlib(u32),
+    Zstd(i32),
+    Uncompressed,
+}
+
+#[allow(clippy::cast_sign_loss)]
+impl FromStr for Compression {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.trim() == "none" {
+            return Ok(Compression::Uncompressed);
+        }
+
+        // NOTE: for backwark compatibility with legacy dos
+        if s.trim() == "zlib+1" {
+            return Ok(Compression::Zlib(1));
+        }
+
+        let vs = s.split(':').collect::<Vec<_>>();
+        if vs.len() != 2 {
+            return Err(Error::ParseCompressionError { s: s.to_string() });
+        }
+
+        let (algo, level) = (
+            vs[0].trim(),
+            vs[1].trim()
+                .parse::<i32>()
+                .map_err(|_| Error::ParseCompressionError { s: s.to_string() })?,
+        );
+        match algo {
+            "zlib" => Ok(Compression::Zlib(level as u32)),
+            "zstd" => Ok(Compression::Zstd(level)), // NOTE: should not exposed before v2
+            _ => Err(Error::ParseCompressionError { s: s.to_string() }),
+        }
+    }
+}
+
 impl Container {
     pub fn new<P: AsRef<Path>>(path: P) -> Container {
         Container {
             path: path.as_ref().to_owned(),
         }
+    }
+
+    pub fn compression(&self) -> Result<Compression, Error> {
+        let algo = self.config()?.compression_algorithm;
+        Compression::from_str(&algo)
     }
 
     /// This will remove everything in the container folder. Use carefully!
@@ -177,16 +223,16 @@ mod tests {
 
     #[test]
     fn default_init() {
-        let cnt = gen_tmp_container(PACK_TARGET_SIZE).lock().unwrap();
+        let cnt = gen_tmp_container(PACK_TARGET_SIZE, "none").lock().unwrap();
 
         assert!(!Dir(&cnt.path).is_empty().unwrap());
     }
 
     #[test]
     fn init_in_inited_folder() {
-        let cnt = gen_tmp_container(PACK_TARGET_SIZE).lock().unwrap();
+        let cnt = gen_tmp_container(PACK_TARGET_SIZE, "none").lock().unwrap();
 
-        let err = cnt.initialize(&Config::new(4 * 1024 * 1024)).unwrap_err();
+        let err = cnt.initialize(&Config::new(4 * 1024 * 1024, "none")).unwrap_err();
         assert!(
             err.to_string().contains("already initialized"),
             "got err: {err}"
@@ -199,11 +245,51 @@ mod tests {
         let cnt = Container::new(&tmp);
         let _ = fs::File::create(cnt.path.join("unexpected"));
 
-        let err = cnt.initialize(&Config::new(4 * 1024 * 1024)).unwrap_err();
+        let err = cnt.initialize(&Config::new(4 * 1024 * 1024, "none")).unwrap_err();
         assert!(
             err.to_string()
                 .contains("Refusing to initialize in non-empty directory"),
             "got err: {err}"
         );
     }
+
+    #[test]
+    fn parse_compression() {
+        assert_eq!(
+            Compression::from_str("none").unwrap(),
+            Compression::Uncompressed
+        );
+        assert_eq!(
+            Compression::from_str("zlib:+1").unwrap(),
+            Compression::Zlib(1)
+        );
+        assert_eq!(
+            Compression::from_str("zstd:-7").unwrap(),
+            Compression::Zstd(-7)
+        );
+
+        // white spaces are trimed
+        assert_eq!(
+            Compression::from_str("none ").unwrap(),
+            Compression::Uncompressed
+        );
+        assert_eq!(
+            Compression::from_str("zlib :+1 ").unwrap(),
+            Compression::Zlib(1)
+        );
+        assert_eq!(
+            Compression::from_str("zstd:-7 ").unwrap(),
+            Compression::Zstd(-7)
+        );
+
+        // zlib+1
+        assert_eq!(
+            Compression::from_str("zlib+1").unwrap(),
+            Compression::Zlib(1)
+        );
+
+        // unable to parse
+        assert!(Compression::from_str("zzzz").is_err());
+    }
+
 }

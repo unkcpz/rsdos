@@ -140,7 +140,7 @@ mod tests {
 
     #[test]
     fn io_loose_insert_and_extract() {
-        let cnt = gen_tmp_container(PACK_TARGET_SIZE).lock().unwrap();
+        let cnt = gen_tmp_container(PACK_TARGET_SIZE, "none").lock().unwrap();
 
         let bstr: ByteString = b"test 0".to_vec();
         let (_, hashkey) = insert(bstr, &cnt).unwrap();
@@ -159,7 +159,7 @@ mod tests {
 
     #[test]
     fn io_loose_insert_and_extract_many() {
-        let cnt = gen_tmp_container(PACK_TARGET_SIZE).lock().unwrap();
+        let cnt = gen_tmp_container(PACK_TARGET_SIZE, "none").lock().unwrap();
 
         let mut hash_content_map: HashMap<String, String> = HashMap::new();
         for i in 0..100 {
