@@ -267,9 +267,10 @@ where
 
     // outer loop control the increment of pack id
     loop {
+        // transaction for every pack writing
         let tx = conn.transaction()?;
         if offset >= pack_size_target {
-            // reset
+            // reset when move to new pack
             cwp_id += 1;
             offset = 0;
             let p = Dir(&packs).at_path(&format!("{cwp_id}"));
