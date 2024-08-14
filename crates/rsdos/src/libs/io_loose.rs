@@ -45,6 +45,14 @@ impl ReaderMaker for LObject {
     }
 }
 
+pub fn insert_many<I>(sources: I, cnt: &Container) -> Result<Vec<(u64, String)>, Error>
+where
+    I: IntoIterator,
+    I::Item: ReaderMaker,
+{
+    sources.into_iter().map(|s| insert(s, cnt)).collect()
+}
+
 pub fn insert<T>(source: T, cnt: &Container) -> Result<(u64, String), Error>
 where
     T: ReaderMaker,
@@ -109,9 +117,7 @@ where
 {
     let iter = hashkeys
         .into_iter()
-        .filter_map(|hashkey| {
-            extract(&hashkey.to_string(), cnt).ok()
-        })
+        .filter_map(|hashkey| extract(&hashkey.to_string(), cnt).ok())
         .flatten();
     Ok(iter)
 }
