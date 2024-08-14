@@ -50,18 +50,20 @@ impl PObject {
     pub fn to_bytes(&self) -> Result<ByteString, Error> {
         let mut rdr = self.make_reader()?;
         let mut buf = vec![];
-        let _ = std::io::copy(&mut rdr, &mut buf)?;
-        // // FIXME: no more valid if read and write size is different after compression
-        // if n == self.raw_size {
-        //     Ok(buf)
-        // } else {
-        //     Err(Error::UnexpectedCopySize {
-        //         expected: self.raw_size,
-        //         got: n,
-        //     })
-        // }
-
-        Ok(buf)
+        let n = std::io::copy(&mut rdr, &mut buf)?;
+        // FIXME: (v2) flasky assert, less valid if read and write size is different after compression
+        // At the moment, n is the size from rdr which is the compressed data therefore should
+        // equal to self.size. But the purpose of this test is for data integrity, the better way
+        // is to using a cheap checksum (CRC32 for error detecting, md5/sha is for crypt) as the
+        // content header.
+        if n == self.raw_size {
+            Ok(buf)
+        } else {
+            Err(Error::UnexpectedCopySize {
+                expected: self.raw_size,
+                got: n,
+            })
+        }
     }
 }
 
@@ -339,16 +341,17 @@ where
                     (bytes_copied, bytes_copied, hash_hex, false)
                 }
                 Compression::Zlib(level) => {
+                    // TODO: see [bet on compression](https://github.com/facebook/zstd/issues/3793#issuecomment-1765095341)
+                    // see how [btrfs use pre-compression-heuristics](https://btrfs.readthedocs.io/en/latest/Compression.html#pre-compression-heuristics)
                     let mut zwriter = ZlibEncoder::new(&cwp, flate2::Compression::new(level));
                     let mut writer = HashWriter::new(&mut zwriter, &mut hasher);
                     let mut stream = rmaker.make_reader()?;
                     let _ = copy_by_chunk(&mut stream, &mut writer, chunk_size)?;
 
-                    let (bytes_read, bytes_write) = (zwriter.total_in(), zwriter.total_out());
-
                     let hash = hasher.finalize_reset();
                     let hash_hex = hex::encode(hash);
-                    (bytes_read, bytes_write, hash_hex, true)
+
+                    (zwriter.total_in(), zwriter.total_out(), hash_hex, true)
                 }
                 Compression::Zstd(_) => {
                     todo!()
@@ -367,8 +370,7 @@ where
             .map_err(|err| Error::SQLiteInsertError { source: err })?;
             offset += bytes_write;
 
-            // FIXME: meaningless to return how many bytes are write/read
-            // Should be removed with considering using cheap checksum for PObject/LObject.
+            // TODO: Should be removed bytes_write with considering using cheap checksum for PObject.
             nbytes_hash.push((bytes_write, hash_hex));
 
             if offset >= pack_size_target {
@@ -385,6 +387,7 @@ where
 #[cfg(test)]
 mod tests {
     use std::{collections::HashMap, io::Write};
+    use rstest::*;
 
     use crate::{
         io::ByteString,
@@ -518,59 +521,38 @@ mod tests {
     }
 
     #[test]
-    fn io_packs_extract_many() {
-        let cnt = gen_tmp_container(64, "none").lock().unwrap();
-
-        let mut hash_content_map: HashMap<String, String> = HashMap::new();
-        for i in 0..100 {
-            let content = format!("test {i}");
-            let buf = content.clone().into_bytes();
-            let (_, hash) = insert(buf, &cnt).unwrap();
-            hash_content_map.insert(hash, content);
-        }
-
-        let info = stat(&cnt).unwrap();
-        assert_eq!(info.count.packs_file, 10);
-        assert_eq!(info.count.packs, 100);
-
-        let mut hashkeys = hash_content_map
-            .keys()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>();
-        // add two random hashkeys that will not be found therefore will not influence the result
-        hashkeys
-            .push("68e2056a0496c469727fa5ab041e1778e39137643fd24db94dd7a532db17aaba".to_string());
-        hashkeys
-            .push("7e76df6ac7d08a837f7212e765edd07333c8159ffa0484bc26394e7ffd898817".to_string());
-
-        let objs = extract_many(&hashkeys, &cnt).unwrap();
-
-        let mut count = 0;
-        for obj in objs {
-            count += 1;
-            let content = hash_content_map.get(&obj.id).unwrap();
-            assert_eq!(
-                String::from_utf8(obj.to_bytes().unwrap()).unwrap(),
-                content.to_owned()
-            );
-        }
-        assert_eq!(count + 2, hashkeys.len());
-    }
-
-    #[test]
-    fn io_packs_extract_many_compression() {
+    fn io_packs_inselt_many() {
         let cnt = gen_tmp_container(64, "zlib:+1").lock().unwrap();
 
         let mut hash_content_map: HashMap<String, String> = HashMap::new();
         for i in 0..100 {
-            let content = format!("test {i}");
+            let content = format!("test {i}").repeat(i);
             let buf = content.clone().into_bytes();
             let (_, hash) = insert(buf, &cnt).unwrap();
             hash_content_map.insert(hash, content);
         }
 
         let info = stat(&cnt).unwrap();
-        assert_eq!(info.count.packs_file, 26);
+        assert_eq!(info.count.packs_file, 34);
+        assert_eq!(info.count.packs, 100);
+    }
+
+    #[rstest]
+    #[case("none")]
+    #[case("zlib+1")]
+    #[case("zlib:+9")]
+    fn io_packs_extract_many(#[case] algo: &str) {
+        let cnt = gen_tmp_container(64, algo).lock().unwrap();
+
+        let mut hash_content_map: HashMap<String, String> = HashMap::new();
+        for i in 0..100 {
+            let content = format!("test {i}").repeat(i);
+            let buf = content.clone().into_bytes();
+            let (_, hash) = insert(buf, &cnt).unwrap();
+            hash_content_map.insert(hash, content);
+        }
+
+        let info = stat(&cnt).unwrap();
         assert_eq!(info.count.packs, 100);
 
         let mut hashkeys = hash_content_map

@@ -28,6 +28,7 @@ impl LObject {
         let mut rdr = self.make_reader()?;
         let mut buf = vec![];
         let n = std::io::copy(&mut rdr, &mut buf)?;
+        // FIXME: (v2) use CRC32 checksum
         if n == self.expected_size {
             Ok(buf)
         } else {

@@ -32,3 +32,6 @@ path = "src/main.rs"
 [lib]
 name = "rsdos"
 path = "src/lib.rs"
+
+[dev-dependencies]
+rstest = "0.22.0"
