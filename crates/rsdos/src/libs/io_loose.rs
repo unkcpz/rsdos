@@ -7,6 +7,7 @@ use crate::io::{copy_by_chunk, ByteString, HashWriter, ReaderMaker};
 use crate::Container;
 use crate::Error;
 
+#[derive(Debug)]
 pub struct LObject {
     pub id: String,
     pub loc: PathBuf,
@@ -43,7 +44,11 @@ impl ReaderMaker for LObject {
         Ok(fs::OpenOptions::new().read(true).open(&self.loc)?)
     }
 }
-pub fn insert<T>(source: T, cnt: &Container) -> Result<(u64, String), Error> where T: ReaderMaker{
+
+pub fn insert<T>(source: T, cnt: &Container) -> Result<(u64, String), Error>
+where
+    T: ReaderMaker,
+{
     // <cnt_path>/sandbox/<uuid> as dst
     let dst = format!("{}.tmp", uuid::Uuid::new_v4());
     let dst = cnt.sandbox()?.join(dst);
@@ -94,8 +99,27 @@ pub fn extract(hashkey: &str, cnt: &Container) -> Result<Option<LObject>, Error>
     }
 }
 
+pub fn extract_many<'a, I>(
+    hashkeys: I,
+    cnt: &'a Container,
+) -> Result<impl Iterator<Item = LObject> + 'a, Error>
+where
+    I: IntoIterator + 'a,
+    I::Item: ToString,
+{
+    let iter = hashkeys
+        .into_iter()
+        .filter_map(|hashkey| {
+            extract(&hashkey.to_string(), cnt).ok()
+        })
+        .flatten();
+    Ok(iter)
+}
+
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use crate::{
         io::ByteString,
         stat,
@@ -121,5 +145,43 @@ mod tests {
             String::from_utf8(obj.to_bytes().unwrap()).unwrap(),
             String::from_utf8(b"test 0".to_vec()).unwrap(),
         );
+    }
+
+    #[test]
+    fn io_loose_insert_and_extract_many() {
+        let cnt = gen_tmp_container(PACK_TARGET_SIZE).lock().unwrap();
+
+        let mut hash_content_map: HashMap<String, String> = HashMap::new();
+        for i in 0..100 {
+            let content = format!("test {i}");
+            let buf = content.clone().into_bytes();
+            let (_, hash) = insert(buf, &cnt).unwrap();
+            hash_content_map.insert(hash, content);
+        }
+
+        let info = stat(&cnt).unwrap();
+        assert_eq!(info.count.loose, 100);
+
+        let mut hashkeys = hash_content_map
+            .keys()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        // add two random hashkeys that will not be found therefore will not influence the result
+        hashkeys
+            .push("68e2056a0496c469727fa5ab041e1778e39137643fd24db94dd7a532db17aaba".to_string());
+        hashkeys
+            .push("7e76df6ac7d08a837f7212e765edd07333c8159ffa0484bc26394e7ffd898817".to_string());
+
+        let objs = extract_many(&hashkeys, &cnt).unwrap();
+        let mut count = 0;
+        for obj in objs {
+            count += 1;
+            let content = hash_content_map.get(&obj.id).unwrap();
+            assert_eq!(
+                String::from_utf8(obj.to_bytes().unwrap()).unwrap(),
+                content.to_owned()
+            );
+        }
+        assert_eq!(count + 2, hashkeys.len());
     }
 }

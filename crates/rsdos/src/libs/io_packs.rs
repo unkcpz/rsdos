@@ -125,7 +125,7 @@ where
     let iter_vec = chunked_iter.flat_map(move |chunk| {
         let placeholders: Vec<&str> = (0..chunk.len()).map(|_| "?").collect();
         let mut stmt = conn.prepare_cached(&format!("SELECT hashkey, compressed, size, offset, length, pack_id FROM db_object WHERE hashkey IN ({})", placeholders.join(","))).unwrap();
-        let mut rows = stmt
+        let rows = stmt
             .query_map(params_from_iter(chunk), |row| {
                 let hashkey: String = row.get(0)?;
                 let compressed: bool = row.get(1)?;
@@ -142,7 +142,8 @@ where
                     offset,
                     pack_id,
                 })
-            }).unwrap()
+            }).expect("query failed");
+        let mut rows = rows
             .filter_map(Result::ok)
             .collect::<Vec<_>>();
 
