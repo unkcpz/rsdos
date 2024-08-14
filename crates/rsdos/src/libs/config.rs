@@ -28,7 +28,7 @@ pub struct Config {
 
 impl Config {
     #[must_use]
-    pub fn new(pack_size_target: u64) -> Self {
+    pub fn new(pack_size_target: u64, compression: &str) -> Self {
         // TODO: use parse-size crate to parse size_target that accept GiB, MiB ...
         Config {
             container_id: uuid::Uuid::new_v4(),
@@ -36,7 +36,7 @@ impl Config {
             loose_prefix_len: LOOSE_PREFIX_LEN,
             pack_size_target,
             hash_type: "sha256".to_string(),
-            compression_algorithm: "zlib+1".to_string(),
+            compression_algorithm: compression.to_string(),
         }
     }
 }

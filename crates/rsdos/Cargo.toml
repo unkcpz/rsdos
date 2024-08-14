@@ -11,6 +11,7 @@ anyhow = "1.0.86"
 bytes = "1.7.1"
 clap = { version = "4.5.9", features = ["derive"] }
 fallible-streaming-iterator = "0.1.9"
+flate2 = { version = "1.0.31", features = ["zlib-ng"] }
 hex = "0.4.3"
 hex-literal = "0.4.1"
 human_bytes = { version = "0.4.3", features = ["fast"] }
@@ -31,3 +32,6 @@ path = "src/main.rs"
 [lib]
 name = "rsdos"
 path = "src/lib.rs"
+
+[dev-dependencies]
+rstest = "0.22.0"

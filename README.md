@@ -20,6 +20,7 @@ The (r)u(s)ty  [`(d)isk-(o)bject(s)tore`](https://github.com/aiidateam/disk-obje
 - To make `Container` a generic type, things that implement `insert`, `extract`, `insert_many` and `extract_many` should be a Container no matter it is local or not. 
 - hashkey servers two purpose: 1. as the id of the object stored, this need to use sha256 to avoid duplicate 2. as the checksum to see if the lazy object read is valid, for this purpose can use cheap checksum.
 - For the Packed objects, `raw_size` is the uncompressed size while `size` is the compressed size occupied the packed file, this different from legacy dos which `length` is the compressed size occupied in packed file.
+- Only support one compression library, for V1 that is zlib, for V2 use zstd.
 
 #### Py wrapper
 
@@ -37,6 +38,7 @@ The `pack` operation will trigger the move from loose to packed store and result
 ### Migration
 
 - The loose is the same, `packs` need to rename to `packed`.
+- Using zstd therefore read as zlib write as zstd.
 - The `config.json` will contain more information so use default to fill the missing field.
 - The packed DB is the most important thing to migrate, all elements are read out and injected into the new embeded DB backend. (need to be careful about `size`, `raw_size` definition w.r.t to the legacy dos)
 - To do the migration, function as CLI command is provided. I also need to provide python wrapper so it can call from AiiDA.
@@ -157,19 +159,22 @@ https://surana.wordpress.com/2009/01/01/numbers-everyone-should-know/
 - [x] packs correctly on adding new packs file
 - [x] loose -> Pack
 - [x] benchmark on loose -> Pack without compress (more than 3x times faster)
-- [ ] API redesign to make it ergonamic and idiomatic Rust [#7](https://github.com/unkcpz/rsdos/pull/7)
-- [ ] compression
+- [x] API redesign to make it ergonamic and idiomatic Rust [#7](https://github.com/unkcpz/rsdos/pull/7)
+- [x] compression (zlib)
 - [ ] benchmark on pack with compress
-- [ ] Use `sled` as k-v DB backend which should have better performance than sqlite [#1](https://github.com/unkcpz/rsdos/pull/1)
-- [ ] `io_uring`
+- [ ] (v2) Use `sled` as k-v DB backend which should have better performance than sqlite [#1](https://github.com/unkcpz/rsdos/pull/1) 
+- [ ] (v2) `io_uring`
+- [ ] (v2) switch to using zstd instead of zlib
 - [ ] docs as library
 - [ ] optimize
 - [ ] validate
 - [ ] backup
 - [ ] benchmark on optimize/validate/backup ...
 - [ ] own rust benchmark on detail performance tuning.
-- [ ] Compress on adding to loose as git. Header definition required.
+- [ ] Compress on adding to loose as git not just during packs. Header definition required.
 - [ ] hide direct write to packs and shading with same loose structure
-- [ ] generic Container interface that can host data in online storage.
+- [ ] generic Container interface that can host data in online storage (trait Container with insert/extract methods)
 - [ ] Add mutex to the pack write, panic when other thread is writing. (or io_uring take care of async?)
 - [ ] Make `Container` generic and natural to support online object storage.
+- [ ] Rename packs -> packed (V2)
+- [ ] Explicit using buffer reader/writer to replace copy_by_chunk, need to symmetry use buf on reader and write for insert/extract. I need to decide in which timing to wrap reader as a BufReader, in `ReaderMaker` or in copy???

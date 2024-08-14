@@ -28,6 +28,7 @@ impl LObject {
         let mut rdr = self.make_reader()?;
         let mut buf = vec![];
         let n = std::io::copy(&mut rdr, &mut buf)?;
+        // FIXME: (v2) use CRC32 checksum
         if n == self.expected_size {
             Ok(buf)
         } else {
@@ -78,7 +79,7 @@ where
     let chunk_size = 524_288; // 512 KiB TODO: make it configurable??
                               //
     let mut stream = source.make_reader()?;
-    let bytes_copied = copy_by_chunk(&mut stream, &mut hwriter, chunk_size)
+    let bytes_read = copy_by_chunk(&mut stream, &mut hwriter, chunk_size)
         .map_err(|err| Error::ChunkCopyError { source: err })?;
     let hash = hasher.finalize();
     let hash_hex = hex::encode(hash);
@@ -92,7 +93,7 @@ where
         fs::rename(&dst, &loose_dst)?;
     }
 
-    Ok((bytes_copied as u64, hash_hex))
+    Ok((bytes_read as u64, hash_hex))
 }
 
 pub fn extract(hashkey: &str, cnt: &Container) -> Result<Option<LObject>, Error> {
@@ -140,7 +141,7 @@ mod tests {
 
     #[test]
     fn io_loose_insert_and_extract() {
-        let cnt = gen_tmp_container(PACK_TARGET_SIZE).lock().unwrap();
+        let cnt = gen_tmp_container(PACK_TARGET_SIZE, "none").lock().unwrap();
 
         let bstr: ByteString = b"test 0".to_vec();
         let (_, hashkey) = insert(bstr, &cnt).unwrap();
@@ -159,7 +160,7 @@ mod tests {
 
     #[test]
     fn io_loose_insert_and_extract_many() {
-        let cnt = gen_tmp_container(PACK_TARGET_SIZE).lock().unwrap();
+        let cnt = gen_tmp_container(PACK_TARGET_SIZE, "none").lock().unwrap();
 
         let mut hash_content_map: HashMap<String, String> = HashMap::new();
         for i in 0..100 {

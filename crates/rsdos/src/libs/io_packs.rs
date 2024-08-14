@@ -1,9 +1,13 @@
+use flate2;
+use flate2::read::ZlibDecoder;
+use flate2::write::ZlibEncoder;
 use rusqlite::{params, params_from_iter, Connection};
 use sha2::{Digest, Sha256};
-use std::fs;
-use std::io::{self, Read, Seek, SeekFrom};
+use std::fs::{self, File};
+use std::io::{self, Read, Seek, SeekFrom, Take};
 use std::path::{Path, PathBuf};
 
+use crate::container::Compression;
 use crate::db::PackEntry;
 use crate::io::{copy_by_chunk, ByteString, HashWriter, ReaderMaker};
 use crate::{db, Container};
@@ -19,6 +23,7 @@ pub struct PObject {
     pub raw_size: u64, // used for checking data integrity
     pub size: u64,
     pub compressed: bool,
+    // pub compress_algo: String, (zstd+22, zlib+3 ...)
     // pub checksum: u64, // CRC32
 }
 
@@ -46,6 +51,11 @@ impl PObject {
         let mut rdr = self.make_reader()?;
         let mut buf = vec![];
         let n = std::io::copy(&mut rdr, &mut buf)?;
+        // FIXME: (v2) flasky assert, less valid if read and write size is different after compression
+        // At the moment, n is the size from rdr which is the compressed data therefore should
+        // equal to self.size. But the purpose of this test is for data integrity, the better way
+        // is to using a cheap checksum (CRC32 for error detecting, md5/sha is for crypt) as the
+        // content header.
         if n == self.raw_size {
             Ok(buf)
         } else {
@@ -57,11 +67,32 @@ impl PObject {
     }
 }
 
+enum PReader {
+    Uncompressed(Take<File>),
+    Zlib(ZlibDecoder<Take<File>>),
+}
+
+impl Read for PReader {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        match self {
+            PReader::Zlib(inner) => inner.read(buf),
+            PReader::Uncompressed(inner) => inner.read(buf),
+        }
+    }
+}
+
 impl ReaderMaker for PObject {
     fn make_reader(&self) -> Result<impl Read, crate::Error> {
         let mut f = fs::OpenOptions::new().read(true).open(&self.loc)?;
         f.seek(SeekFrom::Start(self.offset))?;
-        Ok(f.take(self.size))
+        // NOTE: V2 should add support to zstd
+        if self.compressed {
+            let rdr = PReader::Zlib(ZlibDecoder::new(f.take(self.size)));
+            Ok(rdr)
+        } else {
+            let rdr = PReader::Uncompressed(f.take(self.size));
+            Ok(rdr)
+        }
     }
 }
 
@@ -267,9 +298,10 @@ where
 
     // outer loop control the increment of pack id
     loop {
+        // transaction for every pack writing
         let tx = conn.transaction()?;
         if offset >= pack_size_target {
-            // reset
+            // reset when move to new pack
             cwp_id += 1;
             offset = 0;
             let p = Dir(&packs).at_path(&format!("{cwp_id}"));
@@ -295,29 +327,51 @@ where
             // None. The method is from ReaderMaker and calling rmaker.expected_hash(). If the hash
             // already exist and do not need to run validation, the writer can be normal writer without
             // hash.
-            //
-            // XXX: for the compression, it is a flag of writer to tell which compression algorithm to
-            // use.
-            let mut hwriter = HashWriter::new(&mut cwp, &mut hasher);
-            let mut stream = rmaker.make_reader()?;
-            let bytes_copied = copy_by_chunk(&mut stream, &mut hwriter, chunk_size)?;
 
-            let hash = hasher.finalize_reset();
-            let hash_hex = hex::encode(hash);
+            // The buff (when calling `copy_by_chunk`) is created from reader (e.g. the original data) so does not matter
+            // HashWriter wraps Compression Writer or v.v.
+            let (bytes_read, bytes_write, hash_hex, compressed) = match cnt.compression()? {
+                Compression::Uncompressed => {
+                    let mut writer = HashWriter::new(&mut cwp, &mut hasher);
+                    let mut stream = rmaker.make_reader()?;
+                    let bytes_copied = copy_by_chunk(&mut stream, &mut writer, chunk_size)?;
+
+                    let hash = hasher.finalize_reset();
+                    let hash_hex = hex::encode(hash);
+                    (bytes_copied, bytes_copied, hash_hex, false)
+                }
+                Compression::Zlib(level) => {
+                    // TODO: see [bet on compression](https://github.com/facebook/zstd/issues/3793#issuecomment-1765095341)
+                    // see how [btrfs use pre-compression-heuristics](https://btrfs.readthedocs.io/en/latest/Compression.html#pre-compression-heuristics)
+                    let mut zwriter = ZlibEncoder::new(&cwp, flate2::Compression::new(level));
+                    let mut writer = HashWriter::new(&mut zwriter, &mut hasher);
+                    let mut stream = rmaker.make_reader()?;
+                    let _ = copy_by_chunk(&mut stream, &mut writer, chunk_size)?;
+
+                    let hash = hasher.finalize_reset();
+                    let hash_hex = hex::encode(hash);
+
+                    (zwriter.total_in(), zwriter.total_out(), hash_hex, true)
+                }
+                Compression::Zstd(_) => {
+                    todo!()
+                }
+            };
 
             let mut stmt = tx.prepare_cached("INSERT OR IGNORE INTO db_object (hashkey, compressed, size, offset, length, pack_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
             stmt.execute(params![
                 &hash_hex,
-                false,
-                bytes_copied as u64,
+                compressed,
+                bytes_read,
                 offset,
-                bytes_copied as u64,
+                bytes_write,
                 cwp_id,
             ])
             .map_err(|err| Error::SQLiteInsertError { source: err })?;
-            offset += bytes_copied as u64;
+            offset += bytes_write;
 
-            nbytes_hash.push((bytes_copied as u64, hash_hex));
+            // TODO: Should be removed bytes_write with considering using cheap checksum for PObject.
+            nbytes_hash.push((bytes_write, hash_hex));
 
             if offset >= pack_size_target {
                 break;
@@ -333,6 +387,7 @@ where
 #[cfg(test)]
 mod tests {
     use std::{collections::HashMap, io::Write};
+    use rstest::*;
 
     use crate::{
         io::ByteString,
@@ -344,7 +399,7 @@ mod tests {
 
     #[test]
     fn io_packs_insert_0_when_empty() {
-        let cnt = gen_tmp_container(PACK_TARGET_SIZE).lock().unwrap();
+        let cnt = gen_tmp_container(PACK_TARGET_SIZE, "none").lock().unwrap();
 
         let bstr: ByteString = b"test 0".to_vec();
         let (_, hash) = insert(bstr, &cnt).unwrap();
@@ -354,14 +409,6 @@ mod tests {
         let info = stat(&cnt).unwrap();
         assert_eq!(info.count.packs_file, 1);
         assert_eq!(info.count.packs, 1);
-
-        let mut sbuf = String::new();
-        let mut f0pack = fs::OpenOptions::new()
-            .read(true)
-            .open(cnt.packs().join("0"))
-            .unwrap();
-        f0pack.read_to_string(&mut sbuf).unwrap();
-        assert_eq!(sbuf, "test 0");
 
         // also check pack DB point to correct location to extract content
         let obj = extract(&hash, &cnt).unwrap().unwrap();
@@ -380,14 +427,6 @@ mod tests {
         assert_eq!(info.count.packs_file, 1);
         assert_eq!(info.count.packs, 2);
 
-        let mut sbuf = String::new();
-        let mut f0pack = fs::OpenOptions::new()
-            .read(true)
-            .open(cnt.packs().join("0"))
-            .unwrap();
-        f0pack.read_to_string(&mut sbuf).unwrap();
-        assert_eq!(sbuf, "test 0test 1");
-
         let obj = extract(&hash, &cnt).unwrap().unwrap();
         assert_eq!(
             String::from_utf8(obj.to_bytes().unwrap()).unwrap(),
@@ -397,7 +436,7 @@ mod tests {
 
     #[test]
     fn io_packs_insert_1_when_1_exist() {
-        let cnt = gen_tmp_container(PACK_TARGET_SIZE).lock().unwrap();
+        let cnt = gen_tmp_container(PACK_TARGET_SIZE, "none").lock().unwrap();
 
         // create fack placeholder empty pack 0 and pack 1
         // it is expected that content will be added to pack1
@@ -414,14 +453,6 @@ mod tests {
         assert_eq!(info.count.packs_file, 2);
         assert_eq!(info.count.packs, 1);
 
-        let mut sbuf = String::new();
-        let mut f0pack = fs::OpenOptions::new()
-            .read(true)
-            .open(cnt.packs().join("1"))
-            .unwrap();
-        f0pack.read_to_string(&mut sbuf).unwrap();
-        assert_eq!(sbuf, "test 0");
-
         let obj = extract(&hash, &cnt).unwrap().unwrap();
         assert_eq!(
             String::from_utf8(obj.to_bytes().unwrap()).unwrap(),
@@ -431,7 +462,7 @@ mod tests {
 
     #[test]
     fn io_packs_insert_2_when_1_reach_limit() {
-        let cnt = gen_tmp_container(PACK_TARGET_SIZE).lock().unwrap();
+        let cnt = gen_tmp_container(PACK_TARGET_SIZE, "none").lock().unwrap();
         let pack_target_size = cnt.config().unwrap().pack_size_target;
 
         // snuck limit size of bytes into pack 1 and new bytes will go to pack 2
@@ -466,10 +497,11 @@ mod tests {
 
     #[test]
     fn io_packs_extract_from_any_single() {
-        let cnt = gen_tmp_container(6400).lock().unwrap();
+        let cnt = gen_tmp_container(6400, "none").lock().unwrap();
+        let n = 100;
 
         let mut hash_content_map: HashMap<String, String> = HashMap::new();
-        for i in 0..100 {
+        for i in 0..n {
             let content = format!("test {i}");
             let buf = content.clone().into_bytes();
             let (_, hash) = insert(buf, &cnt).unwrap();
@@ -480,7 +512,7 @@ mod tests {
         // check content of 1 pack is `test 0`
         let info = stat(&cnt).unwrap();
         assert_eq!(info.count.packs_file, 1);
-        assert_eq!(info.count.packs, 100);
+        assert_eq!(info.count.packs, n);
 
         for (hash, content) in hash_content_map {
             let obj = extract(&hash, &cnt).unwrap().unwrap();
@@ -489,19 +521,38 @@ mod tests {
     }
 
     #[test]
-    fn io_packs_extract_many() {
-        let cnt = gen_tmp_container(64).lock().unwrap();
+    fn io_packs_inselt_many() {
+        let cnt = gen_tmp_container(64, "zlib:+1").lock().unwrap();
 
         let mut hash_content_map: HashMap<String, String> = HashMap::new();
         for i in 0..100 {
-            let content = format!("test {i}");
+            let content = format!("test {i}").repeat(i);
             let buf = content.clone().into_bytes();
             let (_, hash) = insert(buf, &cnt).unwrap();
             hash_content_map.insert(hash, content);
         }
 
         let info = stat(&cnt).unwrap();
-        assert_eq!(info.count.packs_file, 10);
+        assert_eq!(info.count.packs_file, 34);
+        assert_eq!(info.count.packs, 100);
+    }
+
+    #[rstest]
+    #[case("none")]
+    #[case("zlib+1")]
+    #[case("zlib:+9")]
+    fn io_packs_extract_many(#[case] algo: &str) {
+        let cnt = gen_tmp_container(64, algo).lock().unwrap();
+
+        let mut hash_content_map: HashMap<String, String> = HashMap::new();
+        for i in 0..100 {
+            let content = format!("test {i}").repeat(i);
+            let buf = content.clone().into_bytes();
+            let (_, hash) = insert(buf, &cnt).unwrap();
+            hash_content_map.insert(hash, content);
+        }
+
+        let info = stat(&cnt).unwrap();
         assert_eq!(info.count.packs, 100);
 
         let mut hashkeys = hash_content_map

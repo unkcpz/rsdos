@@ -26,8 +26,10 @@ where
     H: Digest,
 {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let n = self.writer.write(buf)?;
+        // hasher compute hash from original data pass to buf
         self.hasher.update(buf);
+
+        let n = self.writer.write(buf)?;
         Ok(n)
     }
 
@@ -36,18 +38,19 @@ where
     }
 }
 
-/// Copy by chunk (``chunk_size`` in unit bytes) and return the size of content that copied
+/// Copy by chunk (``chunk_size`` in unit bytes) and return a tuple of total bytes read from reader
+/// and total bytes write to writer.
 pub fn copy_by_chunk<R, W>(
     reader: &mut R,
     writer: &mut W,
     chunk_size: usize,
-) -> Result<usize, std::io::Error>
+) -> Result<u64, std::io::Error>
 where
     R: Read,
     W: Write,
 {
     let mut buf = vec![0u8; chunk_size];
-    let mut total_bytes_copied = 0;
+    let mut total_bytes_read = 0;
 
     loop {
         let bytes_read = reader.read(&mut buf[..])?;
@@ -55,12 +58,13 @@ where
         if bytes_read == 0 {
             break;
         }
-        total_bytes_copied += bytes_read;
+        total_bytes_read += bytes_read;
+
         writer.write_all(&buf[..bytes_read])?;
     }
 
     writer.flush()?;
-    Ok(total_bytes_copied)
+    Ok(total_bytes_read as u64)
 }
 
 pub trait ReaderMaker {

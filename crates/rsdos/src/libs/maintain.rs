@@ -63,7 +63,7 @@ mod tests {
 
     #[test]
     fn pack_loose_default() {
-        let cnt = gen_tmp_container(1024).lock().unwrap();
+        let cnt = gen_tmp_container(1024, "none").lock().unwrap();
         let n = 200;
 
         // add 10 obj to loose

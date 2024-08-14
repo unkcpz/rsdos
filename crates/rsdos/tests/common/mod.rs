@@ -13,7 +13,7 @@ pub fn gen_tmp_container() -> &'static Mutex<Container> {
         let cnt = tempdir().unwrap();
         let cnt_path = cnt.into_path();
 
-        let config = Config::new(PACK_TARGET_SIZE);
+        let config = Config::new(PACK_TARGET_SIZE, "none");
 
         let cnt = Container::new(cnt_path);
         cnt.initialize(&config)
