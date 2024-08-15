@@ -2,12 +2,13 @@ use std::{
     collections::HashMap,
     io::{Cursor, Read, Seek},
     path::PathBuf,
+    str::FromStr,
 };
 
 use pyo3::{exceptions::PyValueError, prelude::*, types::PyBytes};
 use pyo3_file::PyFileLikeObject;
 use rsdos::{
-    container::PACKS_DB,
+    container::{Compression, PACKS_DB},
     db,
     io::{ByteString, ReaderMaker},
     status, Config, Container,
@@ -80,8 +81,25 @@ impl PyContainer {
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))
     }
 
-    fn pack_loose(&self) -> PyResult<()> {
-        rsdos::maintain::pack_loose(&self.inner)
+    fn pack_all_loose(&self, compress_mode: &str) -> PyResult<()> {
+        // NOTE: compress_mode passed to here are: "no", "yes", "keep", "auto".
+        // In legacy dos, "keep" is equivelant to "no" when pack from loose.
+        let compression = match compress_mode {
+            "no" | "keep" => Compression::from_str("none").unwrap(),
+            "yes" => {
+                let algo = self
+                    .inner
+                    .config()
+                    .map_err(|e| PyErr::new::<pyo3::exceptions::PyException, _>(e.to_string()))?
+                    .compression_algorithm;
+                Compression::from_str(&algo)
+                    .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?
+            }
+            _ => {
+                todo!()
+            }
+        };
+        rsdos::maintain::_pack_loose_internal(&self.inner, &compression)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyException, _>(e.to_string()))
     }
 

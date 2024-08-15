@@ -194,9 +194,17 @@ class Container:
 
     def pack_all_loose(
         self,
-        compress: CompressMode = CompressMode.NO,
+        compress: bool | CompressMode = CompressMode.NO,
         validate_objects: bool = True,
         do_fsync: bool = True,
     ):
-        return self.cnt.pack_loose()
+        # To compatible with legacy dos
+        if isinstance(compress, bool):
+            if compress:
+                compress_mode = CompressMode.YES
+            else:
+                compress_mode = CompressMode.NO
+        else:
+            compress_mode = compress
+        return self.cnt.pack_all_loose(compress_mode.value)
 

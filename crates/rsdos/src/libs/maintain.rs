@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 
-use crate::{io_packs::insert_many, status::traverse_loose, Container, Error};
+use crate::{container::Compression, io_packs, status::traverse_loose, Container, Error};
 
 fn extract_hash(loose_obj: &Path) -> String {
     // use a bunch of unwrap, which should be save since operating under loose folder
@@ -11,8 +11,13 @@ fn extract_hash(loose_obj: &Path) -> String {
     format!("{}{}", parent.to_str().unwrap(), filename.to_str().unwrap())
 }
 
-// XXX: flag to set if do the validate, if no, use reguler writer not hash writer.
 pub fn pack_loose(cnt: &Container) -> Result<(), Error> {
+    let compression = cnt.compression()?;
+    _pack_loose_internal(cnt, &compression)
+}
+
+// XXX: flag to set if do the validate, if no, use reguler writer not hash writer.
+pub fn _pack_loose_internal(cnt: &Container, compression: &Compression) -> Result<(), Error> {
     cnt.valid()?;
 
     let mut loose_objs: Vec<PathBuf> = traverse_loose(cnt)?.collect();
@@ -32,7 +37,7 @@ pub fn pack_loose(cnt: &Container) -> Result<(), Error> {
     });
     let expected_hashkeys: Vec<_> = loose_objs.iter().map(|obj| extract_hash(obj)).collect();
 
-    let nbytes_hashkeys = insert_many(loose_objs, cnt)?;
+    let nbytes_hashkeys = io_packs::_insert_many_internal(loose_objs, cnt, compression)?;
     let got_hashkeys: Vec<_> = nbytes_hashkeys
         .into_iter()
         .map(|(_, hashkey)| hashkey.clone())

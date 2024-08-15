@@ -166,11 +166,12 @@ https://surana.wordpress.com/2009/01/01/numbers-everyone-should-know/
 - [x] loose -> Pack
 - [x] benchmark on loose -> Pack without compress (more than 3x times faster)
 - [x] API redesign to make it ergonamic and idiomatic Rust [#7](https://github.com/unkcpz/rsdos/pull/7)
-- [x] compression (zlib) [#8](https://github.com/unkcpz/rsdos/pull/7)
-- [ ] benchmark on pack with compress [#9](https://github.com/unkcpz/rsdos/pull/7)
+- [x] compression (zlib) [#8](https://github.com/unkcpz/rsdos/pull/8)
+- [ ] benchmark on pack with compress [#9](https://github.com/unkcpz/rsdos/pull/9)
 - [ ] (v2) Use `sled` as k-v DB backend which should have better performance than sqlite [#1](https://github.com/unkcpz/rsdos/pull/1) 
 - [ ] (v2) `io_uring`
 - [ ] (v2) switch to using zstd instead of zlib
+- [ ] Memory footprint tracking when packing, since rsdos use iterator it should be memory efficient.
 - [ ] Dependency injection mode to attach progress bar to long run functions (py exposed interface as well)
 - [ ] docs as library
 - [ ] repack

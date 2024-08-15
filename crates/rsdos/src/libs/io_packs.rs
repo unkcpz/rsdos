@@ -276,6 +276,15 @@ where
     I: IntoIterator,
     I::Item: ReaderMaker,
 {
+    let compression = cnt.compression()?; 
+    _insert_many_internal(sources, cnt, &compression)
+}
+
+pub fn _insert_many_internal<I>(sources: I, cnt: &Container, compression: &Compression) -> Result<Vec<(u64, String)>, Error>
+where
+    I: IntoIterator,
+    I::Item: ReaderMaker,
+{
     cnt.valid()?;
 
     let mut conn = Connection::open(cnt.packs_db())?;
@@ -330,7 +339,7 @@ where
 
             // The buff (when calling `copy_by_chunk`) is created from reader (e.g. the original data) so does not matter
             // HashWriter wraps Compression Writer or v.v.
-            let (bytes_read, bytes_write, hash_hex, compressed) = match cnt.compression()? {
+            let (bytes_read, bytes_write, hash_hex, compressed) = match compression {
                 Compression::Uncompressed => {
                     let mut writer = HashWriter::new(&mut cwp, &mut hasher);
                     let mut stream = rmaker.make_reader()?;
@@ -343,7 +352,7 @@ where
                 Compression::Zlib(level) => {
                     // TODO: see [bet on compression](https://github.com/facebook/zstd/issues/3793#issuecomment-1765095341)
                     // see how [btrfs use pre-compression-heuristics](https://btrfs.readthedocs.io/en/latest/Compression.html#pre-compression-heuristics)
-                    let mut zwriter = ZlibEncoder::new(&cwp, flate2::Compression::new(level));
+                    let mut zwriter = ZlibEncoder::new(&cwp, flate2::Compression::new(*level));
                     let mut writer = HashWriter::new(&mut zwriter, &mut hasher);
                     let mut stream = rmaker.make_reader()?;
                     let _ = copy_by_chunk(&mut stream, &mut writer, chunk_size)?;
