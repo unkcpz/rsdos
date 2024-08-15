@@ -2,6 +2,18 @@
 
 An efficient (r)u(s)ty  [`(d)isk-(o)bject(s)tore`](https://github.com/aiidateam/disk-objectstore).
 
+## Installation
+
+- [ ] cargo binstall
+- [ ] cargo instatll
+- [ ] curl
+- [ ] python library and bin
+- [ ] apt/pacman/brew
+
+## Usage
+
+TODO:
+
 ## Design
 
 ### APIs
@@ -21,14 +33,15 @@ An efficient (r)u(s)ty  [`(d)isk-(o)bject(s)tore`](https://github.com/aiidateam/
 - hashkey servers two purpose: 1. as the id of the object stored, this need to use sha256 to avoid duplicate 2. as the checksum to see if the lazy object read is valid, for this purpose can use cheap checksum.
 - For the Packed objects, `raw_size` is the uncompressed size while `size` is the compressed size occupied the packed file, this different from legacy dos which `length` is the compressed size occupied in packed file.
 - Only support one compression library, for V1 that is zlib, for V2 use zstd.
+- [when it is worth to compress?](https://developer.att.com/video-optimizer/docs/best-practices/text-file-compression)
 
 #### Py wrapper
 
 I think open container as context manager is a bad idea in legacy dos. Because the drop part is calling db.close() which only required for packs rw. 
-In princile the context manager should always used since otherwise DB is not gracefully tear down and cause memory leak. 
-Rust will take care of drop in scope so I will not put any drop codes for container in py wrapper.
+In principle the context manager should always used since otherwise DB is not gracefully tear down and cause memory leak. 
+Rust will take care of drop in scope so I do not need to put any drop codes for container in py wrapper.
 After initialize the container, the object is straightforward to use and every IO has its own connection to DB.
-Since I am using `sled` as embeded DB, it is even safe to be used in a non-blocking condition (not tested but in principle in we trust `sled`). 
+Since I am using `sled` as embeded DB, it is even safe to be used in a non-blocking condition (not tested but in principle if we trust `sled`). 
 
 When interact with container, client side (user) have no knowledge on where the objects are stored it can be in loose or packed. 
 Therefore, when calling `insert` or `insert_many` from python wrapper it always goes to loose. 
@@ -87,13 +100,6 @@ To simplify it, I use `PyFileLikeObject` with write to map any file-like instanc
 This design at the same time makes the boundary looks symmetry in turns of read and write operations.
 
 
-## Installation
-
-- [ ] cargo binstall
-- [ ] cargo instatll
-- [ ] curl
-- [ ] python library and bin
-- [ ] apt/pacman/brew
 
 ## Performance notes
 
@@ -165,7 +171,7 @@ https://surana.wordpress.com/2009/01/01/numbers-everyone-should-know/
 - [ ] (v2) Use `sled` as k-v DB backend which should have better performance than sqlite [#1](https://github.com/unkcpz/rsdos/pull/1) 
 - [ ] (v2) `io_uring`
 - [ ] (v2) switch to using zstd instead of zlib
-- [ ] Dependency injection mode to attach progress bar to long run functions
+- [ ] Dependency injection mode to attach progress bar to long run functions (py exposed interface as well)
 - [ ] docs as library
 - [ ] repack
 - [ ] optimize
@@ -173,11 +179,10 @@ https://surana.wordpress.com/2009/01/01/numbers-everyone-should-know/
 - [ ] backup
 - [ ] benchmark on optimize/validate/backup ...
 - [ ] own rust benchmark on detail performance tuning.
-- [ ] Compress on adding to loose as git not just during packs. Header definition required.
-- [ ] hide direct write to packs and shading with same loose structure
-- [ ] generic Container interface that can host data in online storage (trait Container with insert/extract methods)
+- [ ] (v2) Compress on adding to loose as git not just during packs. Header definition required.
+- [ ] (v2) hide direct write to packs and shading with the same loose structure
+- [ ] generic Container interface that can extent to host data in online storage (trait Container with insert/extract methods)
 - [ ] Add mutex to the pack write, panic when other thread is writing. (or io_uring take care of async?)
-- [ ] Make `Container` generic and natural to support online object storage.
 - [ ] (v2) Rename packs -> packed
 - [ ] migation plan and CLI tool
 - [ ] Explicit using buffer reader/writer to replace copy_by_chunk, need to symmetry use buf on reader and write for insert/extract. I need to decide in which timing to wrap reader as a BufReader, in `ReaderMaker` or in copy???

@@ -166,9 +166,9 @@ class Container:
         pack_size_target: int = 4 * 1024 * 1024 * 1024,
         loose_prefix_len: int = 2,
         hash_type: str = "sha256",
-        compression_algorithm: str = "zlib+1",
+        compression_algorithm: str = "zlib:+1",
     ) -> None:
-        self.cnt.init_container(pack_size_target)
+        self.cnt.init_container(pack_size_target, compression_algorithm)
 
     @property
     def is_initialised(self) -> bool:

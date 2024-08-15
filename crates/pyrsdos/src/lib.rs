@@ -38,16 +38,16 @@ impl PyContainer {
         self.inner.path.clone()
     }
 
-    #[pyo3(signature = (pack_size_target=4 * 1024 * 1024))]
-    fn init_container(&self, pack_size_target: u64) -> PyResult<()> {
-        let config = Config::new(pack_size_target);
+    #[pyo3(signature = (pack_size_target=4 * 1024 * 1024, compression_algorithm="zlib:+1"))]
+    fn init_container(&self, pack_size_target: u64, compression_algorithm: &str) -> PyResult<()> {
+        let config = Config::new(pack_size_target, compression_algorithm);
         self.inner.initialize(&config)?;
         Ok(())
     }
 
     #[getter]
     fn is_initialised(&self) -> bool {
-        self.inner.validate().is_ok()
+        self.inner.valid().is_ok()
     }
 
     fn push_to_loose(&self, stream: Py<PyAny>) -> PyResult<(u64, String)> {
@@ -81,7 +81,8 @@ impl PyContainer {
     }
 
     fn pack_loose(&self) -> PyResult<()> {
-        Ok(rsdos::maintain::pack_loose(&self.inner)?)
+        rsdos::maintain::pack_loose(&self.inner)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyException, _>(e.to_string()))
     }
 
     // This is 2 times fast than write to writer from py world since there is no overhead to cross
@@ -184,7 +185,8 @@ impl Stream {
             match PyFileLikeObject::with_requirements(py_filelike, true, false, false, false) {
                 Ok(mut fl) => {
                     // copy from reader to writer
-                    let mut rdr = obj.make_reader()
+                    let mut rdr = obj
+                        .make_reader()
                         .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))?;
                     std::io::copy(&mut rdr, &mut fl)?;
                     fl.rewind().unwrap();
