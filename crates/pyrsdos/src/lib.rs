@@ -2,12 +2,13 @@ use std::{
     collections::HashMap,
     io::{Cursor, Read, Seek},
     path::PathBuf,
+    str::FromStr,
 };
 
 use pyo3::{exceptions::PyValueError, prelude::*, types::PyBytes};
 use pyo3_file::PyFileLikeObject;
 use rsdos::{
-    container::PACKS_DB,
+    container::{Compression, PACKS_DB},
     db,
     io::{ByteString, ReaderMaker},
     status, Config, Container,
@@ -38,16 +39,16 @@ impl PyContainer {
         self.inner.path.clone()
     }
 
-    #[pyo3(signature = (pack_size_target=4 * 1024 * 1024))]
-    fn init_container(&self, pack_size_target: u64) -> PyResult<()> {
-        let config = Config::new(pack_size_target);
+    #[pyo3(signature = (pack_size_target=4 * 1024 * 1024, compression_algorithm="zlib:+1"))]
+    fn init_container(&self, pack_size_target: u64, compression_algorithm: &str) -> PyResult<()> {
+        let config = Config::new(pack_size_target, compression_algorithm);
         self.inner.initialize(&config)?;
         Ok(())
     }
 
     #[getter]
     fn is_initialised(&self) -> bool {
-        self.inner.validate().is_ok()
+        self.inner.valid().is_ok()
     }
 
     fn push_to_loose(&self, stream: Py<PyAny>) -> PyResult<(u64, String)> {
@@ -80,8 +81,26 @@ impl PyContainer {
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))
     }
 
-    fn pack_loose(&self) -> PyResult<()> {
-        Ok(rsdos::maintain::pack_loose(&self.inner)?)
+    fn pack_all_loose(&self, compress_mode: &str) -> PyResult<()> {
+        // NOTE: compress_mode passed to here are: "no", "yes", "keep", "auto".
+        // In legacy dos, "keep" is equivelant to "no" when pack from loose.
+        let compression = match compress_mode {
+            "no" | "keep" => Compression::from_str("none").unwrap(),
+            "yes" => {
+                let algo = self
+                    .inner
+                    .config()
+                    .map_err(|e| PyErr::new::<pyo3::exceptions::PyException, _>(e.to_string()))?
+                    .compression_algorithm;
+                Compression::from_str(&algo)
+                    .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?
+            }
+            _ => {
+                todo!()
+            }
+        };
+        rsdos::maintain::_pack_loose_internal(&self.inner, &compression)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyException, _>(e.to_string()))
     }
 
     // This is 2 times fast than write to writer from py world since there is no overhead to cross
@@ -184,7 +203,8 @@ impl Stream {
             match PyFileLikeObject::with_requirements(py_filelike, true, false, false, false) {
                 Ok(mut fl) => {
                     // copy from reader to writer
-                    let mut rdr = obj.make_reader()
+                    let mut rdr = obj
+                        .make_reader()
                         .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))?;
                     std::io::copy(&mut rdr, &mut fl)?;
                     fl.rewind().unwrap();

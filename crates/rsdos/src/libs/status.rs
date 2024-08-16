@@ -6,7 +6,7 @@ use std::time::Duration;
 use std::{fs, io, result};
 
 use crate::config::Config;
-use crate::config;
+use crate::{config, Error};
 use crate::db::{self};
 use crate::Container;
 
@@ -34,7 +34,7 @@ pub struct SizeInfo {
     pub packs_db: u64,
 }
 
-pub fn traverse_loose(cnt: &Container) -> anyhow::Result<impl Iterator<Item = PathBuf>> {
+pub fn traverse_loose(cnt: &Container) -> Result<impl Iterator<Item = PathBuf>, Error> {
     // TODO: using Dependency Injection mode to notify and handle progress by outside func
     // let spinnner = ProgressBar::new_spinner().with_message("Auditing container stat ...");
     // spinnner.enable_steady_tick(Duration::from_millis(500));
@@ -44,28 +44,24 @@ pub fn traverse_loose(cnt: &Container) -> anyhow::Result<impl Iterator<Item = Pa
         .read_dir()?
         .filter_map(result::Result::ok)
         .map(|entry| entry.path())
-        // .filter(|path| path.is_dir()) // NOTE: this slow down the bin by ~10 % of system time.
         .flat_map(|path| {
             path.read_dir()
                 .unwrap_or_else(|_| panic!("unable to read {}", path.display()))
         })
         .filter_map(result::Result::ok)
         .map(|entry| entry.path()))
-        // .filter(|path| path.is_file())
         // .progress_with(spinnner))
 }
 
-fn traverse_packs(cnt: &Container) -> anyhow::Result<impl Iterator<Item = PathBuf>> {
+fn traverse_packs(cnt: &Container) -> Result<impl Iterator<Item = PathBuf>, Error> {
     let spinnner = ProgressBar::new_spinner().with_message("Auditing container stat ...");
     spinnner.enable_steady_tick(Duration::from_millis(500));
 
     let packs = cnt.packs();
     Ok(packs
-        .read_dir()
-        .with_context(|| format!("not able to read dir {}", packs.display()))?
+        .read_dir()?
         .filter_map(result::Result::ok)
         .map(|entry| entry.path())
-        // .filter(|path| path.is_file())
         .progress_with(spinnner))
 }
 

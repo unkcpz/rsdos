@@ -166,9 +166,9 @@ class Container:
         pack_size_target: int = 4 * 1024 * 1024 * 1024,
         loose_prefix_len: int = 2,
         hash_type: str = "sha256",
-        compression_algorithm: str = "zlib+1",
+        compression_algorithm: str = "zlib:+1",
     ) -> None:
-        self.cnt.init_container(pack_size_target)
+        self.cnt.init_container(pack_size_target, compression_algorithm)
 
     @property
     def is_initialised(self) -> bool:
@@ -194,9 +194,17 @@ class Container:
 
     def pack_all_loose(
         self,
-        compress: CompressMode = CompressMode.NO,
+        compress: bool | CompressMode = CompressMode.NO,
         validate_objects: bool = True,
         do_fsync: bool = True,
     ):
-        return self.cnt.pack_loose()
+        # To compatible with legacy dos
+        if isinstance(compress, bool):
+            if compress:
+                compress_mode = CompressMode.YES
+            else:
+                compress_mode = CompressMode.NO
+        else:
+            compress_mode = compress
+        return self.cnt.pack_all_loose(compress_mode.value)
 
