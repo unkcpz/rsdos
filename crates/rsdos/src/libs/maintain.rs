@@ -1,15 +1,7 @@
-use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 
 use crate::{container::Compression, io_packs, status::traverse_loose, Container, Error};
-
-fn extract_hash(loose_obj: &Path) -> String {
-    // use a bunch of unwrap, which should be save since operating under loose folder
-    let parent = loose_obj.parent().unwrap().file_name().unwrap();
-    let filename = loose_obj.file_name().unwrap();
-    format!("{}{}", parent.to_str().unwrap(), filename.to_str().unwrap())
-}
 
 pub fn pack_loose(cnt: &Container) -> Result<(), Error> {
     let compression = cnt.compression()?;
@@ -20,9 +12,11 @@ pub fn pack_loose(cnt: &Container) -> Result<(), Error> {
 pub fn _pack_loose_internal(cnt: &Container, compression: &Compression) -> Result<(), Error> {
     cnt.valid()?;
 
-    let mut loose_objs: Vec<PathBuf> = traverse_loose(cnt)?.collect();
+    let loose_objs = traverse_loose(cnt)?;
 
     // if objs in packs, remove it from Vec
+    // Only objects that not yet pack will be packed.
+    // NOTE: for large packed DB this operation can be performance bottleneck
     let conn = Connection::open(cnt.packs_db())?;
     let mut stmt = conn.prepare("SELECT hashkey FROM db_object")?;
     let rows: Vec<_> = stmt
@@ -31,30 +25,33 @@ pub fn _pack_loose_internal(cnt: &Container, compression: &Compression) -> Resul
         .filter_map(std::result::Result::ok)
         .collect();
 
-    loose_objs.retain(|obj| {
-        let hash = extract_hash(obj);
-        !rows.contains(&hash)
+    let sources = loose_objs.filter(|obj| {
+        let hash = obj.parent().and_then(|p| p.file_name()).and_then(|parent| {
+            obj.file_name().map(|filename| {
+                format!("{}{}", parent.to_str().unwrap(), filename.to_str().unwrap())
+            })
+        });
+        hash.map_or(false, |h| !rows.contains(&h))
     });
-    let expected_hashkeys: Vec<_> = loose_objs.iter().map(|obj| extract_hash(obj)).collect();
 
-    let nbytes_hashkeys = io_packs::_insert_many_internal(loose_objs, cnt, compression)?;
-    let got_hashkeys: Vec<_> = nbytes_hashkeys
-        .into_iter()
-        .map(|(_, hashkey)| hashkey.clone())
-        .collect();
+    io_packs::_insert_many_internal(sources, cnt, compression)?;
 
     // XXX: the goal is unclear in legacy dos, there are following reasons that can cause the hash
     // mismatched:
     // 1. content change for loose object (this should be checked independently for loose)
     // 2. loose -> pack is not proceed correctly. (this better to be checkd by cheap checksum)
-    for (h1, h2) in got_hashkeys.iter().zip(expected_hashkeys.iter()) {
-        if *h1 != *h2 {
-            return Err(Error::IntegrityError {
-                got: h1.to_string(),
-                expected: h2.to_string(),
-            });
-        }
-    }
+    // let got_hashkeys: Vec<_> = nbytes_hashkeys
+    //     .into_iter()
+    //     .map(|(_, hashkey)| hashkey.clone())
+    //     .collect();
+    // for (h1, h2) in got_hashkeys.iter().zip(expected_hashkeys.iter()) {
+    //     if *h1 != *h2 {
+    //         return Err(Error::IntegrityError {
+    //             got: h1.to_string(),
+    //             expected: h2.to_string(),
+    //         });
+    //     }
+    // }
 
     Ok(())
 }
