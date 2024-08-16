@@ -48,6 +48,24 @@ Therefore, when calling `insert` or `insert_many` from python wrapper it always 
 When calling `extract` or `extract_many` it will check loose first and then packed store to get the object(s). 
 The `pack` operation will trigger the move from loose to packed store and result into the objects are distrubuted in two places.
 
+### Estimate whether to compress
+- [when it is worth to compress?](https://developer.att.com/video-optimizer/docs/best-practices/text-file-compression)
+- see [bet on compression](https://github.com/facebook/zstd/issues/3793#issuecomment-1765095341)
+- see how [btrfs use pre-compression-heuristics](https://btrfs.readthedocs.io/en/latest/Compression.html#pre-compression-heuristics)
+
+In the reader maker, I put a method to the trait named `worth_compress` that return (`SmallContent`, `MaybeBinary`, `ZFile([u8; 4])`, `MaybeLargeText`).
+By default it return `MaybeLargeText` so should be compressed by default if compression turned on. 
+I use the metric metioned in the "att" article above to decide whether I'll compress it or not.
+
+Here is the decision making flow:
+- If something wrong when parsing the maybe format, just regard it "worth to compress" (e.g. `MaybeLargeText`).
+- If it is a file (`SmallContent`) < 850 bytes don't compress. (file metadata)
+- Read 2 header bytes if it is a zilb or a zstd(which is 4 bytes in header) (`ZFile([u8; 4])`), don't compress. (this will be override if recompress was on and different compression algorithm is assigned.)
+- Read 512 bytes and check if it is a binary (`MaybeBinary`) (by checking null bytes which is a heuristic for it is a binary data) 
+- none of above is true, regard it as "worth to compress!" (`MabyLargeText`)
+
+This avoid to run actuall compress which bring overhead.
+
 ### Migration
 
 - The loose is the same, `packs` need to rename to `packed`.
@@ -167,7 +185,8 @@ https://surana.wordpress.com/2009/01/01/numbers-everyone-should-know/
 - [x] benchmark on loose -> Pack without compress (more than 3x times faster)
 - [x] API redesign to make it ergonamic and idiomatic Rust [#7](https://github.com/unkcpz/rsdos/pull/7)
 - [x] compression (zlib) [#8](https://github.com/unkcpz/rsdos/pull/8)
-- [ ] benchmark on pack with compress [#9](https://github.com/unkcpz/rsdos/pull/9)
+- [x] benchmark on pack with compress [#9](https://github.com/unkcpz/rsdos/pull/9)
+- [x] estimate on the input stream format and decide whether pack. [#9](https://github.com/unkcpz/rsdos/pull/9)
 - [ ] (v2) Use `sled` as k-v DB backend which should have better performance than sqlite [#1](https://github.com/unkcpz/rsdos/pull/1) 
 - [ ] (v2) `io_uring`
 - [ ] (v2) switch to using zstd instead of zlib

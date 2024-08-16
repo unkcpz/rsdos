@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use crate::container::Compression;
 use crate::db::PackEntry;
-use crate::io::{copy_by_chunk, ByteString, HashWriter, ReaderMaker};
+use crate::io::{copy_by_chunk, ByteString, HashWriter, MaybeContentFormat, ReaderMaker};
 use crate::{db, Container};
 
 use crate::utils::Dir;
@@ -276,11 +276,15 @@ where
     I: IntoIterator,
     I::Item: ReaderMaker,
 {
-    let compression = cnt.compression()?; 
+    let compression = cnt.compression()?;
     _insert_many_internal(sources, cnt, &compression)
 }
 
-pub fn _insert_many_internal<I>(sources: I, cnt: &Container, compression: &Compression) -> Result<Vec<(u64, String)>, Error>
+pub fn _insert_many_internal<I>(
+    sources: I,
+    cnt: &Container,
+    compression: &Compression,
+) -> Result<Vec<(u64, String)>, Error>
 where
     I: IntoIterator,
     I::Item: ReaderMaker,
@@ -351,21 +355,29 @@ where
                     (bytes_copied, bytes_copied, hash_hex, false)
                 }
                 Compression::Zlib(level) => {
-                    // TODO: see [bet on compression](https://github.com/facebook/zstd/issues/3793#issuecomment-1765095341)
-                    // see how [btrfs use pre-compression-heuristics](https://btrfs.readthedocs.io/en/latest/Compression.html#pre-compression-heuristics)
-                    let mut zwriter = ZlibEncoder::new(&cwp, flate2::Compression::new(*level));
-                    let mut writer = HashWriter::new(&mut zwriter, &mut hasher);
-                    let _ = copy_by_chunk(&mut stream, &mut writer, chunk_size)?;
+                    if let Ok(MaybeContentFormat::MaybeLargeText) = rmaker.maybe_content_format() {
+                        let mut zwriter = ZlibEncoder::new(&cwp, flate2::Compression::new(*level));
+                        let mut writer = HashWriter::new(&mut zwriter, &mut hasher);
+                        let _ = copy_by_chunk(&mut stream, &mut writer, chunk_size)?;
 
-                    // flate2 out contains 2bytes zlib header and 4 bytes CRC checksum, while
-                    // total_out did not count as bytes write.
-                    // See: https://github.com/rust-lang/flate2-rs/issues/246
-                    let bytes_write = zwriter.total_out() + 6;
+                        // flate2 out contains 2bytes zlib header and 4 bytes CRC checksum, while
+                        // total_out did not count as bytes write.
+                        // See: https://github.com/rust-lang/flate2-rs/issues/246
+                        let bytes_write = zwriter.total_out() + 6;
 
-                    let hash = hasher.finalize_reset();
-                    let hash_hex = hex::encode(hash);
+                        let hash = hasher.finalize_reset();
+                        let hash_hex = hex::encode(hash);
 
-                    (zwriter.total_in(), bytes_write, hash_hex, true)
+                        (zwriter.total_in(), bytes_write, hash_hex, true)
+                    } else {
+                        // TODO: this can be combined with Uncompressed case
+                        let mut writer = HashWriter::new(&mut cwp, &mut hasher);
+                        let bytes_copied = copy_by_chunk(&mut stream, &mut writer, chunk_size)?;
+
+                        let hash = hasher.finalize_reset();
+                        let hash_hex = hex::encode(hash);
+                        (bytes_copied, bytes_copied, hash_hex, false)
+                    }
                 }
                 Compression::Zstd(_) => {
                     todo!()
@@ -400,8 +412,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, io::Write};
     use rstest::*;
+    use std::{collections::HashMap, io::Write};
 
     use crate::{
         io::ByteString,
