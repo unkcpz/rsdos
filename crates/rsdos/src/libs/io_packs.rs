@@ -552,9 +552,9 @@ mod tests {
     }
 
     #[rstest]
-    // #[case("none")]
+    #[case("none")]
     #[case("zlib+1")]
-    // #[case("zlib:+9")]
+    #[case("zlib:+9")]
     fn io_packs_extract_many(#[case] algo: &str) {
         let cnt = gen_tmp_container(64, algo).lock().unwrap();
 
@@ -568,6 +568,50 @@ mod tests {
 
         let info = stat(&cnt).unwrap();
         assert_eq!(info.count.packs, 100);
+
+        let mut hashkeys = hash_content_map
+            .keys()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        // add two random hashkeys that will not be found therefore will not influence the result
+        hashkeys
+            .push("68e2056a0496c469727fa5ab041e1778e39137643fd24db94dd7a532db17aaba".to_string());
+        hashkeys
+            .push("7e76df6ac7d08a837f7212e765edd07333c8159ffa0484bc26394e7ffd898817".to_string());
+
+        let objs = extract_many(&hashkeys, &cnt).unwrap();
+
+        let mut count = 0;
+        for obj in objs {
+            count += 1;
+            let content = hash_content_map.get(&obj.id).unwrap();
+            assert_eq!(
+                String::from_utf8(obj.to_bytes().unwrap()).unwrap(),
+                content.to_owned()
+            );
+        }
+        assert_eq!(count + 2, hashkeys.len());
+    }
+
+    #[rstest]
+    #[case("none")]
+    #[case("zlib+1")]
+    #[case("zlib:+9")]
+    /// Test if the content size is larger than the copy chunk size (64KiB)
+    fn io_packs_extract_many_large_content(#[case] algo: &str) {
+        let cnt = gen_tmp_container(64 * 1024 * 1024, algo).lock().unwrap();
+
+        let mut hash_content_map: HashMap<String, String> = HashMap::new();
+        for i in 0..10 {
+            // create a 800 KiB data
+            let content = format!("8bytes{i}").repeat(100 * 1024);
+            let buf = content.clone().into_bytes();
+            let (_, hash) = insert(buf, &cnt).unwrap();
+            hash_content_map.insert(hash, content);
+        }
+
+        let info = stat(&cnt).unwrap();
+        assert_eq!(info.count.packs, 10);
 
         let mut hashkeys = hash_content_map
             .keys()

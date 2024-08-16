@@ -187,3 +187,4 @@ https://surana.wordpress.com/2009/01/01/numbers-everyone-should-know/
 - [ ] (v2) Rename packs -> packed
 - [ ] migation plan and CLI tool
 - [ ] Explicit using buffer reader/writer to replace copy_by_chunk, need to symmetry use buf on reader and write for insert/extract. I need to decide in which timing to wrap reader as a BufReader, in `ReaderMaker` or in copy???
+- [ ] (v3) integrate with OpenDAL for unified interface

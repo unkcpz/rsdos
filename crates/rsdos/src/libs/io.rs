@@ -52,6 +52,9 @@ where
     let mut buf = vec![0u8; chunk_size];
     let mut total_bytes_read = 0;
 
+    // NOTE: using fill_buf/consume (low level call close to unsafe code) could gainning ~2% speed up 
+    // but need to sophisticately control the buf not worth to. The code in this function is clear
+    // to understand and quite efficient.
     loop {
         let bytes_read = reader.read(&mut buf[..])?;
         // EOF if bytes_read == 0, then stop and flush
