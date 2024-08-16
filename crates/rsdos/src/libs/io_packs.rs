@@ -339,10 +339,11 @@ where
 
             // The buff (when calling `copy_by_chunk`) is created from reader (e.g. the original data) so does not matter
             // HashWriter wraps Compression Writer or v.v.
+            let mut stream = rmaker.make_reader()?;
+
             let (bytes_read, bytes_write, hash_hex, compressed) = match compression {
                 Compression::Uncompressed => {
                     let mut writer = HashWriter::new(&mut cwp, &mut hasher);
-                    let mut stream = rmaker.make_reader()?;
                     let bytes_copied = copy_by_chunk(&mut stream, &mut writer, chunk_size)?;
 
                     let hash = hasher.finalize_reset();
@@ -354,16 +355,15 @@ where
                     // see how [btrfs use pre-compression-heuristics](https://btrfs.readthedocs.io/en/latest/Compression.html#pre-compression-heuristics)
                     let mut zwriter = ZlibEncoder::new(&cwp, flate2::Compression::new(*level));
                     let mut writer = HashWriter::new(&mut zwriter, &mut hasher);
-                    let mut stream = rmaker.make_reader()?;
                     let _ = copy_by_chunk(&mut stream, &mut writer, chunk_size)?;
-
-                    let hash = hasher.finalize_reset();
-                    let hash_hex = hex::encode(hash);
 
                     // flate2 out contains 2bytes zlib header and 4 bytes CRC checksum, while
                     // total_out did not count as bytes write.
                     // See: https://github.com/rust-lang/flate2-rs/issues/246
                     let bytes_write = zwriter.total_out() + 6;
+
+                    let hash = hasher.finalize_reset();
+                    let hash_hex = hex::encode(hash);
 
                     (zwriter.total_in(), bytes_write, hash_hex, true)
                 }

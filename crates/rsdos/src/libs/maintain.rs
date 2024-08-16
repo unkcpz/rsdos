@@ -34,6 +34,8 @@ pub fn _pack_loose_internal(cnt: &Container, compression: &Compression) -> Resul
         hash.map_or(false, |h| !rows.contains(&h))
     });
 
+    // race may happened during packing, I pass path as iterator which can be modified or doesn't
+    // catch newly added objects to loose folder.
     io_packs::_insert_many_internal(sources, cnt, compression)?;
 
     // XXX: the goal is unclear in legacy dos, there are following reasons that can cause the hash
