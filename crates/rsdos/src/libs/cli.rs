@@ -12,6 +12,7 @@ use crate::config::Config;
 use crate::db::{self};
 
 pub enum StoreType {
+    Auto,
     Loose,
     Packs,
 }
@@ -28,7 +29,7 @@ pub fn add_file(
     let expected_size = stat.len();
 
     let (bytes_streamd, hash_hex) = match target {
-        StoreType::Loose => loose_insert(file.clone(), cnt)?,
+        StoreType::Loose | StoreType::Auto => loose_insert(file.clone(), cnt)?,
         StoreType::Packs => packs_insert(file.clone(), cnt)?,
     };
 
@@ -108,7 +109,10 @@ mod tests {
     use std::{collections::HashMap, io::Write};
     use tempfile::NamedTempFile;
 
-    use crate::{io_packs, test_utils::{gen_tmp_container, PACK_TARGET_SIZE}};
+    use crate::{
+        io_packs,
+        test_utils::{gen_tmp_container, PACK_TARGET_SIZE},
+    };
 
     use super::*;
 

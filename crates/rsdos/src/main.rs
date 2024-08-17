@@ -42,6 +42,11 @@ enum Commands {
         /// One or more paths to files to add
         #[arg(required = true, value_name = "FILE(s)")]
         paths: Vec<PathBuf>,
+
+        /// Target store type, `loose`/`packs` to add to loose/packs.
+        /// Use `auto` (default) if you don't know.
+        #[arg(short, long, default_value = "auto", value_name = "DEST")]
+        dest: String,
     },
 
     /// Optimize the storage
@@ -81,6 +86,7 @@ fn main() -> anyhow::Result<()> {
                 format!("unable to initialize container at {}", cnt.path.display())
             })?;
         }
+        #[allow(clippy::cast_precision_loss)]
         Commands::Status => {
             let cnt = Container::new(&cnt_path);
             let cnt = match cnt.valid() {
@@ -110,7 +116,8 @@ fn main() -> anyhow::Result<()> {
 
             io::stdout().write_all(state.as_bytes())?;
         }
-        Commands::AddFiles { paths } => {
+        #[allow(clippy::cast_precision_loss)]
+        Commands::AddFiles { paths, dest } => {
             let cnt = Container::new(&cnt_path);
             let cnt = match cnt.valid() {
                 Ok(cnt) => cnt,
@@ -123,7 +130,16 @@ fn main() -> anyhow::Result<()> {
                     continue;
                 }
 
-                let (hash_hex, filename, expected_size) = rsdos::add_file(&path, cnt, &StoreType::Loose)?;
+                let dest = match dest.as_str() {
+                    "auto" => StoreType::Auto,
+                    "loose" => StoreType::Loose,
+                    "packs" => StoreType::Packs,
+                    _ => {
+                        eprintln!("unknown dest '{dest}', expect 'auto', 'loose' or 'packs'");
+                        std::process::exit(1);
+                    }
+                };
+                let (hash_hex, filename, expected_size) = rsdos::add_file(&path, cnt, &dest)?;
                 println!(
                     "{} - {}: {}",
                     hash_hex,
@@ -139,7 +155,6 @@ fn main() -> anyhow::Result<()> {
             dbg!(no_compress, no_vacuum);
         }
         Commands::CatFile { object_hash } => {
-            // XXX: flag that support directly push to packs
             let cnt = rsdos::Container::new(&cnt_path);
             let obj = rsdos::io_loose::extract(&object_hash, &cnt)?;
             match obj {
@@ -150,13 +165,13 @@ fn main() -> anyhow::Result<()> {
 
                     anyhow::ensure!(
                         n == obj.expected_size,
-                        "file was not the expecwed size, expected: {}, got: {}",
+                        "file has wrong size, expected: {}, got: {}, usually caused by data corruption",
                         obj.expected_size,
                         n
                     );
                 }
                 _ => {
-                    eprintln!("object {} not found in {}", object_hash, cnt_path.display());
+                    eprintln!("object {object_hash} not found");
                 }
             }
         } // TODO: validate/backup subcommands
