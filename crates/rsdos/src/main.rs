@@ -1,7 +1,7 @@
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 use human_bytes::human_bytes;
-use rsdos::add_file::StoreType;
+use rsdos::cli::StoreType;
 use rsdos::io::ReaderMaker;
 use rsdos::{config::Config, utils::create_dir, Container};
 use std::{env, fmt::Debug, path::PathBuf};

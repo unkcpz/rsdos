@@ -28,8 +28,9 @@ pub enum Error {
     UnableObtainDir { path: PathBuf },
     #[error("Uninitialized container directory at {}", .path.display())]
     Uninitialized { path: PathBuf },
-    #[error("Could not read the container config file at {}", .path.display())]
+    #[error("Could not read the container config file at {}: {}", .path.display(), .source)]
     ConfigFileError {
+        source: std::io::Error,
         path: PathBuf,
     },
     #[error("Could not reach {}: {cause}", .path.display())]

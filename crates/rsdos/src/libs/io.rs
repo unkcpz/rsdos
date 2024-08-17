@@ -175,7 +175,7 @@ mod tests {
         // large binary text
         let mut f = tempfile::NamedTempFile::new().unwrap();
         let mut rng_bytes = (0..1000).map(|_| rand::random::<u8>()).collect::<Vec<_>>();
-        rng_bytes.push(0x00); // we use this condition so add it for sure test
+        rng_bytes.insert(100, 0x00); // we use this condition so add it for sure test
         f.write_all(&rng_bytes).unwrap();
         f.flush().unwrap();
 

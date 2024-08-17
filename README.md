@@ -190,20 +190,21 @@ https://surana.wordpress.com/2009/01/01/numbers-everyone-should-know/
 - [ ] (v2) Use `sled` as k-v DB backend which should have better performance than sqlite [#1](https://github.com/unkcpz/rsdos/pull/1) 
 - [ ] (v2) `io_uring`
 - [ ] (v2) switch to using zstd instead of zlib
+- [x] CLI commands so can bench on large samples (200 GB SSSP repo).
 - [ ] Memory footprint tracking when packing, since rsdos use iterator it should be memory efficient.
 - [ ] Dependency injection mode to attach progress bar to long run functions (py exposed interface as well)
 - [ ] docs as library
 - [ ] repack
-- [ ] optimize
+- [x] optimize
 - [ ] validate
 - [ ] backup
 - [ ] benchmark on optimize/validate/backup ...
-- [ ] own rust benchmark on detail performance tuning.
+- [ ] (v1) Explicit using buffer reader/writer to replace copy_by_chunk, need to symmetry use buf on reader and write for insert/extract. I need to decide in which timing to wrap reader as a BufReader, in `ReaderMaker` or in copy???
+- [ ] (v1) own rust benchmark on detail performance tuning.
+- [ ] (v1) Add mutex to the pack write, panic when other thread is writing. (or io_uring take care of async?)
 - [ ] (v2) Compress on adding to loose as git not just during packs. Header definition required.
 - [ ] (v2) hide direct write to packs and shading with the same loose structure
-- [ ] generic Container interface that can extent to host data in online storage (trait Container with insert/extract methods)
-- [ ] Add mutex to the pack write, panic when other thread is writing. (or io_uring take care of async?)
 - [ ] (v2) Rename packs -> packed
-- [ ] migation plan and CLI tool
-- [ ] Explicit using buffer reader/writer to replace copy_by_chunk, need to symmetry use buf on reader and write for insert/extract. I need to decide in which timing to wrap reader as a BufReader, in `ReaderMaker` or in copy???
+- [ ] (v2) migation plan and CLI tool (v1 is design to compatible to w/r legacy dos repo and same interface, v2 has API change therefore take care of migaration.)
 - [ ] (v3) integrate with OpenDAL for unified interface
+- [ ] (v3) (dup as above?) generic Container interface that can extent to host data in online storage (trait Container with insert/extract methods)

@@ -12,13 +12,10 @@ pub mod utils;
 pub mod error;
 pub use crate::error::Error;
 
-#[path = "libs/add_file.rs"]
-pub mod add_file;
-pub use crate::add_file::add_file;
-
-#[path = "libs/status.rs"]
-pub mod status;
-pub use crate::status::stat;
+#[path = "libs/cli.rs"]
+pub mod cli;
+pub use crate::cli::add_file;
+pub use crate::cli::stat;
 
 #[path = "libs/io.rs"]
 pub mod io;

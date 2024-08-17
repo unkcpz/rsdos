@@ -4,17 +4,15 @@ use serde_json::to_string_pretty;
 use crate::Error;
 use crate::{config::Config, db, utils::Dir};
 use core::panic;
+use indicatif::{ProgressBar, ProgressIterator};
+use std::result;
 use std::str::FromStr;
+use std::time::Duration;
 use std::{
     fs,
     io::Write,
     path::{Path, PathBuf},
 };
-
-#[derive(Debug)]
-pub struct Container {
-    pub path: PathBuf,
-}
 
 pub const PACKS_DB: &str = "packs.idx";
 const CONFIG_FILE: &str = "config.json";
@@ -22,6 +20,35 @@ const LOOSE: &str = "loose";
 const PACKS: &str = "packs";
 const DUPLICATES: &str = "duplicates";
 const SANDBOX: &str = "sandbox";
+
+#[derive(Debug)]
+pub struct Container {
+    pub path: PathBuf,
+}
+
+#[derive(Debug)]
+pub struct ContainerInfo {
+    pub location: String,
+    pub id: String,
+    pub compression_algorithm: String,
+    pub count: CountInfo,
+    pub size: SizeInfo,
+}
+
+#[derive(Debug)]
+pub struct CountInfo {
+    pub loose: u64,
+    pub packs: u64,
+    pub packs_file: u64,
+}
+
+#[derive(Debug)]
+pub struct SizeInfo {
+    pub loose: u64,
+    pub packs: u64,
+    pub packs_file: u64,
+    pub packs_db: u64,
+}
 
 #[derive(Debug, PartialEq)]
 pub enum Compression {
@@ -51,7 +78,8 @@ impl FromStr for Compression {
 
         let (algo, level) = (
             vs[0].trim(),
-            vs[1].trim()
+            vs[1]
+                .trim()
                 .parse::<i32>()
                 .map_err(|_| Error::ParseCompressionError { s: s.to_string() })?,
         );
@@ -125,8 +153,10 @@ impl Container {
     pub fn config(&self) -> Result<Config, Error> {
         let config_path = self.config_file();
         let config = fs::read_to_string(&config_path)?;
-        let config = serde_json::from_str(&config)
-            .map_err(|_| Error::ConfigFileError { path: config_path })?;
+        let config = serde_json::from_str(&config).map_err(|err| Error::ConfigFileError {
+            source: err.into(),
+            path: config_path.clone(),
+        })?;
 
         Ok(config)
     }
@@ -213,6 +243,37 @@ impl Container {
     }
 }
 
+pub fn traverse_loose(cnt: &Container) -> Result<impl Iterator<Item = PathBuf>, Error> {
+    // TODO: using Dependency Injection mode to notify and handle progress by outside func
+    // let spinnner = ProgressBar::new_spinner().with_message("Auditing container stat ...");
+    // spinnner.enable_steady_tick(Duration::from_millis(500));
+
+    let loose = cnt.loose();
+    Ok(loose
+        .read_dir()?
+        .filter_map(result::Result::ok)
+        .map(|entry| entry.path())
+        .flat_map(|path| {
+            path.read_dir()
+                .unwrap_or_else(|_| panic!("unable to read {}", path.display()))
+        })
+        .filter_map(result::Result::ok)
+        .map(|entry| entry.path()))
+    // .progress_with(spinnner))
+}
+
+pub fn traverse_packs(cnt: &Container) -> Result<impl Iterator<Item = PathBuf>, Error> {
+    let spinnner = ProgressBar::new_spinner().with_message("Auditing container stat ...");
+    spinnner.enable_steady_tick(Duration::from_millis(500));
+
+    let packs = cnt.packs();
+    Ok(packs
+        .read_dir()?
+        .filter_map(result::Result::ok)
+        .map(|entry| entry.path())
+        .progress_with(spinnner))
+}
+
 #[cfg(test)]
 mod tests {
     use tempfile::tempdir;
@@ -232,7 +293,9 @@ mod tests {
     fn init_in_inited_folder() {
         let cnt = gen_tmp_container(PACK_TARGET_SIZE, "none").lock().unwrap();
 
-        let err = cnt.initialize(&Config::new(4 * 1024 * 1024, "none")).unwrap_err();
+        let err = cnt
+            .initialize(&Config::new(4 * 1024 * 1024, "none"))
+            .unwrap_err();
         assert!(
             err.to_string().contains("already initialized"),
             "got err: {err}"
@@ -245,7 +308,9 @@ mod tests {
         let cnt = Container::new(&tmp);
         let _ = fs::File::create(cnt.path.join("unexpected"));
 
-        let err = cnt.initialize(&Config::new(4 * 1024 * 1024, "none")).unwrap_err();
+        let err = cnt
+            .initialize(&Config::new(4 * 1024 * 1024, "none"))
+            .unwrap_err();
         assert!(
             err.to_string()
                 .contains("Refusing to initialize in non-empty directory"),
@@ -291,5 +356,4 @@ mod tests {
         // unable to parse
         assert!(Compression::from_str("zzzz").is_err());
     }
-
 }
