@@ -27,8 +27,8 @@ enum Commands {
         /// Pack size (in GiB)
         #[arg(short, long, default_value_t = 4, value_name = "PACK_SIZE")]
         pack_size: u64,
-        
-        /// Compression algorithm none for not compressing data or 
+
+        /// Compression algorithm none for not compressing data or
         /// (format: <zalgo>:<level>, such as: zlib:+1 or zstd:-2)
         #[arg(short, long, default_value = "zstd:+1", value_name = "COMPRESSION")]
         compression: String,
@@ -45,8 +45,8 @@ enum Commands {
 
         /// Target store type, `loose`/`packs` to add to loose/packs.
         /// Use `auto` (default) if you don't know.
-        #[arg(short, long, default_value = "auto", value_name = "DEST")]
-        dest: String,
+        #[arg(short, long, default_value = "auto", value_name = "TO")]
+        to: String,
     },
 
     /// Optimize the storage
@@ -63,10 +63,16 @@ enum Commands {
 
     CatFile {
         #[arg(required = true)]
-        object_hash: String,
+        id: String,
+
+        /// Target store type, `loose`/`packs` to add to loose/packs.
+        /// Use `auto` (default) if you don't know.
+        #[arg(short, long, default_value = "auto", value_name = "FROM")]
+        from: String,
     },
 }
 
+#[allow(clippy::too_many_lines)]
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     // If container path provided, using it
@@ -74,7 +80,10 @@ fn main() -> anyhow::Result<()> {
     let cnt_path = args.path.unwrap_or(env::current_dir()?.join("container"));
 
     match args.cmd {
-        Commands::Init { pack_size, compression } => {
+        Commands::Init {
+            pack_size,
+            compression,
+        } => {
             // if target not exist create folder
             if !cnt_path.exists() {
                 create_dir(&cnt_path)?;
@@ -117,7 +126,7 @@ fn main() -> anyhow::Result<()> {
             io::stdout().write_all(state.as_bytes())?;
         }
         #[allow(clippy::cast_precision_loss)]
-        Commands::AddFiles { paths, dest } => {
+        Commands::AddFiles { paths, to } => {
             let cnt = Container::new(&cnt_path);
             let cnt = match cnt.valid() {
                 Ok(cnt) => cnt,
@@ -130,16 +139,16 @@ fn main() -> anyhow::Result<()> {
                     continue;
                 }
 
-                let dest = match dest.as_str() {
+                let to = match to.as_str() {
                     "auto" => StoreType::Auto,
                     "loose" => StoreType::Loose,
                     "packs" => StoreType::Packs,
                     _ => {
-                        eprintln!("unknown dest '{dest}', expect 'auto', 'loose' or 'packs'");
+                        eprintln!("unknown store '{to}', expect 'auto', 'loose' or 'packs'");
                         std::process::exit(1);
                     }
                 };
-                let (hash_hex, filename, expected_size) = rsdos::add_file(&path, cnt, &dest)?;
+                let (hash_hex, filename, expected_size) = rsdos::add_file(&path, cnt, &to)?;
                 println!(
                     "{} - {}: {}",
                     hash_hex,
@@ -154,26 +163,97 @@ fn main() -> anyhow::Result<()> {
         } => {
             dbg!(no_compress, no_vacuum);
         }
-        Commands::CatFile { object_hash } => {
+        Commands::CatFile { id, from } => {
             let cnt = rsdos::Container::new(&cnt_path);
-            let obj = rsdos::io_loose::extract(&object_hash, &cnt)?;
-            match obj {
-                Some(obj) => {
-                    let mut buf_rdr = BufReader::new(obj.make_reader()?); 
-                    let n = std::io::copy(&mut buf_rdr, &mut std::io::stdout())
-                        .with_context(|| "write object to stdout")?;
-
-                    anyhow::ensure!(
-                        n == obj.expected_size,
-                        "file has wrong size, expected: {}, got: {}, usually caused by data corruption",
-                        obj.expected_size,
-                        n
-                    );
-                }
+            let from = match from.as_str() {
+                "auto" => StoreType::Auto,
+                "loose" => StoreType::Loose,
+                "packs" => StoreType::Packs,
                 _ => {
-                    eprintln!("object {object_hash} not found");
+                    eprintln!("unknown store '{from}', expect 'auto', 'loose' or 'packs'");
+                    std::process::exit(1);
                 }
-            }
+            };
+            // FIXME: simplipy it passing writer into function to be written
+            match from {
+                StoreType::Loose => {
+                    let obj = rsdos::io_loose::extract(&id, &cnt)?;
+                    if let Some(obj) = obj {
+                        let rdr = obj.make_reader()?;
+                        let mut buf_rdr = BufReader::new(rdr);
+                        let n = std::io::copy(&mut buf_rdr, &mut std::io::stdout())
+                            .with_context(|| "write object to stdout")?;
+
+                        // TODO: (v2) checksum
+                        anyhow::ensure!(
+                                    n == obj.expected_size,
+                                    "object has wrong size, expected: {}, got: {}, usually caused by data corruption",
+                                    obj.expected_size,
+                                    n
+                                );
+                    } else {
+                        eprintln!("object {id} not found in loose store");
+                        std::process::exit(1)
+                    }
+                }
+                StoreType::Packs => {
+                    let obj = rsdos::io_packs::extract(&id, &cnt)?;
+                    if let Some(obj) = obj {
+                        let rdr = obj.make_reader()?;
+                        let mut buf_rdr = BufReader::new(rdr);
+                        let n = std::io::copy(&mut buf_rdr, &mut std::io::stdout())
+                            .with_context(|| "write object to stdout")?;
+
+                        // TODO: (v2) checksum
+                        anyhow::ensure!(
+                                    n == obj.raw_size,
+                                    "object has wrong size, expected: {}, got: {}, usually caused by data corruption",
+                                    obj.raw_size,
+                                    n
+                                );
+                    } else {
+                        eprintln!("object {id} not found in packed store");
+                        std::process::exit(1)
+                    }
+                }
+                StoreType::Auto => {
+                    // first lookup in loose, if not found lookup in packed
+                    let obj = rsdos::io_loose::extract(&id, &cnt)?;
+                    if let Some(obj) = obj {
+                        let rdr = obj.make_reader()?;
+                        let mut buf_rdr = BufReader::new(rdr);
+                        let n = std::io::copy(&mut buf_rdr, &mut std::io::stdout())
+                            .with_context(|| "write object to stdout")?;
+
+                        // TODO: (v2) checksum
+                        anyhow::ensure!(
+                                    n == obj.expected_size,
+                                    "object has wrong size, expected: {}, got: {}, usually caused by data corruption",
+                                    obj.expected_size,
+                                    n
+                                );
+                    } else {
+                        let obj = rsdos::io_packs::extract(&id, &cnt)?;
+                        if let Some(obj) = obj {
+                            let rdr = obj.make_reader()?;
+                            let mut buf_rdr = BufReader::new(rdr);
+                            let n = std::io::copy(&mut buf_rdr, &mut std::io::stdout())
+                                .with_context(|| "write object to stdout")?;
+
+                            // TODO: (v2) checksum
+                            anyhow::ensure!(
+                                    n == obj.raw_size,
+                                    "object has wrong size, expected: {}, got: {}, usually caused by data corruption",
+                                    obj.raw_size,
+                                    n
+                                );
+                        } else {
+                            eprintln!("object {id} not found");
+                            std::process::exit(1)
+                        }
+                    }
+                }
+            };
         } // TODO: validate/backup subcommands
     };
 

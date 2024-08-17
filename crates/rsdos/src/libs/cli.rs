@@ -1,11 +1,13 @@
 use anyhow::Context;
+use std::io::BufRead;
 use std::{fs, io::BufReader, path::PathBuf};
 
 use crate::container::{
     traverse_loose, traverse_packs, Container, ContainerInfo, CountInfo, SizeInfo,
 };
-use crate::io_loose::insert as loose_insert;
-use crate::io_packs::insert as packs_insert;
+use crate::io::ReaderMaker;
+use crate::io_loose::{self, insert as loose_insert};
+use crate::io_packs::{self, insert as packs_insert};
 use crate::Error;
 
 use crate::config::Config;
@@ -20,7 +22,7 @@ pub enum StoreType {
 pub fn add_file(
     file: &PathBuf,
     cnt: &Container,
-    target: &StoreType,
+    to: &StoreType,
 ) -> anyhow::Result<(String, String, u64)> {
     // Race here if file changes in between stat and push, the source may changed
     // in the end of add check, the size from stat and copied should be identical.
@@ -28,7 +30,7 @@ pub fn add_file(
     let stat = fs::metadata(file).with_context(|| format!("stat {}", file.display()))?;
     let expected_size = stat.len();
 
-    let (bytes_streamd, hash_hex) = match target {
+    let (bytes_streamd, hash_hex) = match to {
         StoreType::Loose | StoreType::Auto => loose_insert(file.clone(), cnt)?,
         StoreType::Packs => packs_insert(file.clone(), cnt)?,
     };
