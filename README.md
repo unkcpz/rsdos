@@ -27,7 +27,7 @@ TODO:
 - Since insert/extract can interact with either loose or packed store, I use enum-based strategy.
 - naming convention are `loose` and `packed`. To compatible with legacy dos, if legacy container exist, `packs` is also valid.
 - `pack` is the operation to move objects from loose to packed store. It calling `insert_many` to packed store since no overhead on DB openning/closing. 
-- `repack` is on packed store and do the `pack` again using `sandbox` folder.
+- `repack` is on packed store and do the `pack` again using incremental pack_id (vacuum after).
 - Besides the `pack` and `repack` cases above, `insert_many` to packed store should not exposed to normal user. 
 - To make `Container` a generic type, things that implement `insert`, `extract`, `insert_many` and `extract_many` should be a Container no matter it is local or not. 
 - hashkey servers two purpose: 1. as the id of the object stored, this need to use sha256 to avoid duplicate 2. as the checksum to see if the lazy object read is valid, for this purpose can use cheap checksum.

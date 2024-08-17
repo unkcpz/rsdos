@@ -2,13 +2,14 @@ use anyhow::Context;
 use clap::{Parser, Subcommand};
 use human_bytes::human_bytes;
 use rsdos::cli::StoreType;
+use rsdos::container::Compression;
 use rsdos::io::ReaderMaker;
 use rsdos::{config::Config, utils::create_dir, Container};
+use std::str::FromStr;
 use std::{env, fmt::Debug, path::PathBuf};
 
 use std::io::{self, BufReader, Write};
 
-/// Simple program to greet a person
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -18,6 +19,23 @@ struct Args {
 
     #[command(subcommand)]
     cmd: Commands,
+}
+
+#[derive(Subcommand, Debug)]
+enum OptimizeCommands {
+    /// pack objects from loose to packed store
+    Pack {
+        /// Disable compress object, default compression algorithm will be used.
+        #[arg(long, default_value_t = false)]
+        no_compress: bool,
+    },
+
+    /// repack objects in packs
+    Repack {
+        /// Compression algorithm for repack
+        #[arg(short, long, default_value = "zstd:+1", value_name = "COMPRESSION")]
+        compression: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -51,14 +69,8 @@ enum Commands {
 
     /// Optimize the storage
     Optimize {
-        /// Disable compress object
-        #[arg(long, default_value_t = false)]
-        no_compress: bool,
-
-        /// Disable vacuum the databass
-        #[arg(long, default_value_t = true)]
-        no_vacuum: bool,
-        // TODO: no interactive, do without ask
+        #[command(subcommand)]
+        cmd: OptimizeCommands,
     },
 
     CatFile {
@@ -157,11 +169,30 @@ fn main() -> anyhow::Result<()> {
                 );
             }
         }
-        Commands::Optimize {
-            no_compress,
-            no_vacuum,
-        } => {
-            dbg!(no_compress, no_vacuum);
+        Commands::Optimize { cmd } => {
+            match cmd {
+                OptimizeCommands::Pack { no_compress } => {
+                    let cnt = Container::new(&cnt_path);
+                    let cnt = match cnt.valid() {
+                        Ok(cnt) => cnt,
+                        Err(e) => anyhow::bail!(e),
+                    };
+                    let compression = if no_compress {
+                        Compression::from_str("none")?
+                    } else {
+                        // FIXME: put algo as global const
+                        Compression::from_str("zlib:+1")?
+                    };
+
+                    rsdos::maintain::_pack_loose_internal(cnt, &compression).unwrap_or_else(|err| {
+                        eprintln!("failed on pack loose {err}");
+                        std::process::exit(1);
+                    });
+                }
+                OptimizeCommands::Repack { compression } => {
+                    todo!()
+                }
+            }
         }
         Commands::CatFile { id, from } => {
             let cnt = rsdos::Container::new(&cnt_path);
