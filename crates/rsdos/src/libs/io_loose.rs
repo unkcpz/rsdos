@@ -1,4 +1,4 @@
-use sha2::{Digest, Sha256};
+use ring::digest;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -65,8 +65,7 @@ where
     let dst = cnt.sandbox().join(dst);
     let mut writer = fs::File::create(&dst)?;
 
-    let mut hasher = Sha256::new();
-    let mut hwriter = HashWriter::new(&mut writer, &mut hasher);
+    let mut hwriter = HashWriter::new(&mut writer, &digest::SHA256);
 
     // write to object and store it in {hash:..2}/{hash:2..} file
     // first write to tmp and get the hash, than move it to the location.
@@ -81,7 +80,7 @@ where
     let mut stream = source.make_reader()?;
     let bytes_read = copy_by_chunk(&mut stream, &mut hwriter, chunk_size)
         .map_err(|err| Error::ChunkCopyError { source: err })?;
-    let hash = hasher.finalize();
+    let hash = hwriter.ctx.finish();
     let hash_hex = hex::encode(hash);
 
     let loose = cnt.loose();

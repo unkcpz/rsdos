@@ -4,8 +4,8 @@ use std::{env, fs};
 fn main() -> anyhow::Result<()> {
     let cnt_path = env::current_dir()?.join("sample_pack_all_loose");
     fs::create_dir_all(&cnt_path)?;
-    let n = 10000;
-    let pack_target_size = 4 * 1024 * 1024;
+    let n = 1;
+    let pack_target_size = 4 * 1024 * 1024 * 1024;
     let config = rsdos::Config::new(pack_target_size, "none");
 
     let cnt = rsdos::Container::new(cnt_path);
@@ -24,7 +24,7 @@ fn main() -> anyhow::Result<()> {
                 for i in 0..n {
                     bar.inc(1);
                     // let content = format!("test {i}");
-                    let content = format!("test {i}").repeat(i as usize);
+                    let content = format!("test {i}").repeat(5 * 1024 * 1024);
                     let bstring = content.as_bytes().to_vec();
 
                     rsdos::io_loose::insert(bstring, &cnt)?;

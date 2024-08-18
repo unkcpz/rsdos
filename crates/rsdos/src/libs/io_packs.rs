@@ -1,8 +1,8 @@
 use flate2;
 use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
+use ring::digest;
 use rusqlite::{params, params_from_iter, Connection};
-use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::{self, Read, Seek, SeekFrom, Take};
 use std::path::{Path, PathBuf};
@@ -304,7 +304,6 @@ where
         .read(true)
         .open(cwp)?;
     let mut offset = cwp.seek(io::SeekFrom::End(0))?;
-    let mut hasher = Sha256::new();
 
     let mut nbytes_hash = Vec::new();
     let mut sources = sources.into_iter().peekable();
@@ -343,29 +342,31 @@ where
 
             let mut stream = rmaker.make_reader()?;
 
-            let (bytes_read, compressed) = match (compression, rmaker.maybe_content_format()) {
+            let (bytes_read, hash_hex, compressed) = match (compression, rmaker.maybe_content_format()) {
                 (Compression::Zlib(level), Ok(MaybeContentFormat::MaybeLargeText)) => {
                     // get hash of raw bytes and then z file therefore hash is between encoder and
                     // original writer (.i.e cwp)
                     let mut writer =
                         ZlibEncoder::new(&mut cwp, flate2::Compression::new(*level));
-                    let mut writer = HashWriter::new(&mut writer, &mut hasher);
-                    let bytes_copied = copy_by_chunk(&mut stream, &mut writer, chunk_size)?;
+                    let mut hwriter = HashWriter::new(&mut writer, &digest::SHA256);
+                    let bytes_copied = copy_by_chunk(&mut stream, &mut hwriter, chunk_size)?;
+                    let hash = hwriter.ctx.finish();
+                    let hash_hex = hex::encode(hash);
 
-                    (bytes_copied, true)
+                    (bytes_copied, hash_hex, true)
                 }
                 (Compression::Zstd(_), Ok(MaybeContentFormat::MaybeLargeText)) => {
                     todo!()
                 }
                 _ => {
-                    let mut writer = HashWriter::new(&mut cwp, &mut hasher);
-                    let bytes_copied = copy_by_chunk(&mut stream, &mut writer, chunk_size)?;
+                    let mut hwriter = HashWriter::new(&mut cwp, &digest::SHA256);
+                    let bytes_copied = copy_by_chunk(&mut stream, &mut hwriter, chunk_size)?;
+                    let hash = hwriter.ctx.finish();
+                    let hash_hex = hex::encode(hash);
 
-                    (bytes_copied, false)
+                    (bytes_copied, hash_hex, false)
                 }
             };
-            let hash = hasher.finalize_reset();
-            let hash_hex = hex::encode(hash);
 
             // look at the end of cwp compute how many bytes had been written
             let bytes_write = cwp.stream_position()? - offset;
