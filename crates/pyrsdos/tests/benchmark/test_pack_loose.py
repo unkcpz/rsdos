@@ -16,20 +16,20 @@ def reset_packs(folder_path: Path):
     "compress_mode,nrepeat", 
     [
         # 5 MiB, 5 KiB, 5 bytes
-        (CompressMode.YES, 5 * 1024 * 1024),    # NOTE: legacy dos implementation is > 500 times slower than rsdos
-        (CompressMode.NO, 5 * 1024 * 1024),     # Should try to avoid runnig this except for demo purpose. 
+        (CompressMode.YES, 5 * 1024 * 1024),
+        (CompressMode.NO, 5 * 1024 * 1024),
         (CompressMode.YES, 5 * 1024), 
         (CompressMode.NO, 5 * 1024),
         (CompressMode.YES, 5), 
         (CompressMode.NO, 5),
     ])
-@pytest.mark.benchmark(group="pack_100")
-def test_pack_loose_100_py(benchmark, tmp_path, compress_mode, nrepeat):
-    """Add 100 objects to the container in loose form, and benchmark pack_all_loose speed."""
+@pytest.mark.benchmark(group="pack_10")
+def test_pack_loose_10_py(benchmark, tmp_path, compress_mode, nrepeat):
+    """Add 10 objects to the container in loose form, and benchmark pack_all_loose speed."""
     cnt = PyContainer(tmp_path)
     cnt.init_container(pack_size_target = 4 * 1024 * 1024 * 1024, compression_algorithm="zlib+1")
 
-    num_files = 100
+    num_files = 10
     data_content = [(f"test {i}" * nrepeat).encode("ascii") for i in range(num_files)]
     hashkeys = []
     for content in data_content:
@@ -62,13 +62,13 @@ def test_pack_loose_100_py(benchmark, tmp_path, compress_mode, nrepeat):
         (CompressMode.YES, 5), 
         (CompressMode.NO, 5),
     ])
-@pytest.mark.benchmark(group="pack_100")
-def test_pack_loose_100_rs(benchmark, tmp_path, compress_mode, nrepeat):
-    """Add 100 objects to the container in loose form, and benchmark pack_all_loose speed."""
+@pytest.mark.benchmark(group="pack_10")
+def test_pack_loose_10_rs(benchmark, tmp_path, compress_mode, nrepeat):
+    """Add 10 objects to the container in loose form, and benchmark pack_all_loose speed."""
     cnt = RsContainer(tmp_path)
     cnt.init_container(pack_size_target = 4 * 1024 * 1024 * 1024, compression_algorithm="zlib+1")
 
-    num_files = 100
+    num_files = 10
     data_content = [(f"test {i}" * nrepeat).encode("ascii") for i in range(num_files)]
     hashkeys = []
     for content in data_content:
