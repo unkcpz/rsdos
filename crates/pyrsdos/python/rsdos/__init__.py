@@ -139,14 +139,22 @@ class Container:
     def add_objects_to_pack(  
         self,
         content_list: t.Union[t.List[bytes], t.Tuple[bytes, ...]],
-        compress: bool = False,
+        compress: bool | CompressMode = CompressMode.NO,
         no_holes: bool = False,
         no_holes_read_twice: bool = True,
         callback: t.Optional[t.Callable] = None,
         do_fsync: bool = True,
         do_commit: bool = True,
     ) -> t.List[str]:
-        hkey_lst = [i[1] for i in self.cnt.insert_many_to_packs(content_list)]
+        # To compatible with legacy dos
+        if isinstance(compress, bool):
+            if compress:
+                compress_mode = CompressMode.YES
+            else:
+                compress_mode = CompressMode.NO
+        else:
+            compress_mode = compress
+        hkey_lst = [i[1] for i in self.cnt.insert_many_to_packs(content_list, compress_mode.value)]
         return hkey_lst
             
 

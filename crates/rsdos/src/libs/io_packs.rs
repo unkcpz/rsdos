@@ -342,14 +342,14 @@ where
             // hash.
 
             let mut stream = rmaker.make_reader()?;
-            let mut writer = HashWriter::new(&mut cwp, &mut hasher);
 
             let (bytes_read, compressed) = match (compression, rmaker.maybe_content_format()) {
                 (Compression::Zlib(level), Ok(MaybeContentFormat::MaybeLargeText)) => {
-                    // The buff (when calling `copy_by_chunk`) is created from reader (e.g. the original data) so does not matter
-                    // HashWriter wraps Compression Writer or v.v.
+                    // get hash of raw bytes and then z file therefore hash is between encoder and
+                    // original writer (.i.e cwp)
                     let mut writer =
-                        ZlibEncoder::new(&mut writer, flate2::Compression::new(*level));
+                        ZlibEncoder::new(&mut cwp, flate2::Compression::new(*level));
+                    let mut writer = HashWriter::new(&mut writer, &mut hasher);
                     let bytes_copied = copy_by_chunk(&mut stream, &mut writer, chunk_size)?;
 
                     (bytes_copied, true)

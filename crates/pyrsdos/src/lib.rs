@@ -71,13 +71,30 @@ impl PyContainer {
         &self,
         py: Python,
         sources: Vec<Py<PyBytes>>,
+        compress_mode: &str,
     ) -> PyResult<Vec<(u64, String)>> {
         let sources = sources.iter().map(|s| {
             let b = s.bind(py);
             b.as_bytes().to_vec()
         });
 
-        rsdos::io_packs::insert_many(sources, &self.inner)
+        let compression = match compress_mode {
+            "no" | "keep" => Compression::from_str("none").unwrap(),
+            "yes" => {
+                let algo = self
+                    .inner
+                    .config()
+                    .map_err(|e| PyErr::new::<pyo3::exceptions::PyException, _>(e.to_string()))?
+                    .compression_algorithm;
+                Compression::from_str(&algo)
+                    .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?
+            }
+            _ => {
+                todo!()
+            }
+        };
+
+        rsdos::io_packs::_insert_many_internal(sources, &self.inner, &compression)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))
     }
 

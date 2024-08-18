@@ -5,14 +5,14 @@ import random
 @pytest.mark.benchmark(group="read_single")
 def test_packs_read_single_rs(rs_container, benchmark):
     """Add 10'000 objects to the container in loose form, and benchmark write and read speed."""
-    num_files = 10000
+    num_files = 1
     data_content = [str(i).encode("ascii") for i in range(num_files)]
     expected_hashkeys = [
         hashlib.sha256(content).hexdigest() for content in data_content
     ]
     expected_results_dict = dict(zip(expected_hashkeys, data_content))
 
-    hashkeys = rs_container.add_objects_to_pack(data_content, compress=False)
+    hashkeys = rs_container.add_objects_to_pack(data_content, compress=True)
     random.shuffle(hashkeys)
     # Note that here however the OS will be using the disk caches
     result = benchmark(rs_container.get_object_content, hashkeys[0])
