@@ -28,7 +28,7 @@ fn main() -> anyhow::Result<()> {
             "bench" => {
                 let arg2 = args.get(2).unwrap();
                 match &arg2[..] {
-                    "push" => {
+                    "insert" => {
                         let bar = ProgressBar::new(n);
 
                         for i in 0..n {
@@ -40,7 +40,7 @@ fn main() -> anyhow::Result<()> {
                             rsdos::io_loose::insert(bstring, &cnt)?;
                         }
                     }
-                    "pull" => {
+                    "extract" => {
                         // FN to benchmark
                         let mut hasher = Sha256::new();
                         for i in 0..n {
