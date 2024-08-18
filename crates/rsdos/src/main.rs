@@ -10,6 +10,8 @@ use std::{env, fmt::Debug, path::PathBuf};
 
 use std::io::{self, BufReader, Write};
 
+pub const DEFAULT_COMPRESSION_ALGORITHM: &str = "zlib:+1";
+
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -33,7 +35,7 @@ enum OptimizeCommands {
     /// repack objects in packs
     Repack {
         /// Compression algorithm for repack
-        #[arg(short, long, default_value = "zstd:+1", value_name = "COMPRESSION")]
+        #[arg(short, long, default_value = DEFAULT_COMPRESSION_ALGORITHM, value_name = "COMPRESSION")]
         compression: String,
     },
 }
@@ -236,8 +238,7 @@ fn main() -> anyhow::Result<()> {
                     let compression = if no_compress {
                         Compression::from_str("none")?
                     } else {
-                        // FIXME: put algo as global const
-                        Compression::from_str("zlib:+1")?
+                        Compression::from_str(DEFAULT_COMPRESSION_ALGORITHM)?
                     };
 
                     rsdos::maintain::_pack_loose_internal(cnt, &compression).unwrap_or_else(
