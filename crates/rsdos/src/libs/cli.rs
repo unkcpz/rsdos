@@ -1,13 +1,11 @@
 use anyhow::Context;
-use std::io::BufRead;
 use std::{fs, io::BufReader, path::PathBuf};
 
 use crate::container::{
     traverse_loose, traverse_packs, Container, ContainerInfo, CountInfo, SizeInfo,
 };
-use crate::io::ReaderMaker;
-use crate::io_loose::{self, insert as loose_insert};
-use crate::io_packs::{self, insert as packs_insert};
+use crate::io_loose::insert as loose_insert;
+use crate::io_packs::insert as packs_insert;
 use crate::Error;
 
 use crate::config::Config;

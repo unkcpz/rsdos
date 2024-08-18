@@ -84,6 +84,62 @@ enum Commands {
     },
 }
 
+fn extract(
+    id: &str,
+    cnt: &Container,
+    st: &StoreType,
+    mut to: impl Write,
+) -> anyhow::Result<Option<u64>> {
+    let n = match st {
+        StoreType::Loose => _extract_l(id, cnt, to)?,
+        StoreType::Packs => _extract_p(id, cnt, to)?,
+        StoreType::Auto => {
+            // first lookup in loose, if not found lookup in packed
+            _extract_l(id, cnt, &mut to)?.or_else(|| _extract_p(id, cnt, &mut to).ok()?)
+        }
+    };
+    Ok(n)
+}
+
+fn _extract_l(id: &str, cnt: &Container, mut to: impl Write) -> anyhow::Result<Option<u64>> {
+    let obj = rsdos::io_loose::extract(id, cnt)?;
+    if let Some(obj) = obj {
+        let rdr = obj.make_reader()?;
+        let mut buf_rdr = BufReader::new(rdr);
+        let n = std::io::copy(&mut buf_rdr, &mut to).with_context(|| "write object to stdout")?;
+
+        // TODO: (v2) checksum
+        anyhow::ensure!(
+            n == obj.expected_size,
+            "object has wrong size, expected: {}, got: {}, usually caused by data corruption",
+            obj.expected_size,
+            n
+        );
+        Ok(Some(n))
+    } else {
+        Ok(None)
+    }
+}
+
+fn _extract_p(id: &str, cnt: &Container, mut to: impl Write) -> anyhow::Result<Option<u64>> {
+    let obj = rsdos::io_packs::extract(id, cnt)?;
+    if let Some(obj) = obj {
+        let rdr = obj.make_reader()?;
+        let mut buf_rdr = BufReader::new(rdr);
+        let n = std::io::copy(&mut buf_rdr, &mut to).with_context(|| "write object to stdout")?;
+        // TODO: (v2) checksum
+        anyhow::ensure!(
+            n == obj.raw_size,
+            "object has wrong size, expected: {}, got: {}, usually caused by data corruption",
+            obj.raw_size,
+            n
+        );
+        Ok(Some(n))
+    } else {
+        Ok(None)
+    }
+}
+
 #[allow(clippy::too_many_lines)]
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
@@ -184,10 +240,12 @@ fn main() -> anyhow::Result<()> {
                         Compression::from_str("zlib:+1")?
                     };
 
-                    rsdos::maintain::_pack_loose_internal(cnt, &compression).unwrap_or_else(|err| {
-                        eprintln!("failed on pack loose {err}");
-                        std::process::exit(1);
-                    });
+                    rsdos::maintain::_pack_loose_internal(cnt, &compression).unwrap_or_else(
+                        |err| {
+                            eprintln!("failed on pack loose {err}");
+                            std::process::exit(1);
+                        },
+                    );
                 }
                 OptimizeCommands::Repack { compression } => {
                     todo!()
@@ -205,86 +263,13 @@ fn main() -> anyhow::Result<()> {
                     std::process::exit(1);
                 }
             };
-            // FIXME: simplipy it passing writer into function to be written
-            match from {
-                StoreType::Loose => {
-                    let obj = rsdos::io_loose::extract(&id, &cnt)?;
-                    if let Some(obj) = obj {
-                        let rdr = obj.make_reader()?;
-                        let mut buf_rdr = BufReader::new(rdr);
-                        let n = std::io::copy(&mut buf_rdr, &mut std::io::stdout())
-                            .with_context(|| "write object to stdout")?;
+            let mut to = std::io::stdout();
+            let n = extract(&id, &cnt, &from, &mut to)?;
 
-                        // TODO: (v2) checksum
-                        anyhow::ensure!(
-                                    n == obj.expected_size,
-                                    "object has wrong size, expected: {}, got: {}, usually caused by data corruption",
-                                    obj.expected_size,
-                                    n
-                                );
-                    } else {
-                        eprintln!("object {id} not found in loose store");
-                        std::process::exit(1)
-                    }
-                }
-                StoreType::Packs => {
-                    let obj = rsdos::io_packs::extract(&id, &cnt)?;
-                    if let Some(obj) = obj {
-                        let rdr = obj.make_reader()?;
-                        let mut buf_rdr = BufReader::new(rdr);
-                        let n = std::io::copy(&mut buf_rdr, &mut std::io::stdout())
-                            .with_context(|| "write object to stdout")?;
-
-                        // TODO: (v2) checksum
-                        anyhow::ensure!(
-                                    n == obj.raw_size,
-                                    "object has wrong size, expected: {}, got: {}, usually caused by data corruption",
-                                    obj.raw_size,
-                                    n
-                                );
-                    } else {
-                        eprintln!("object {id} not found in packed store");
-                        std::process::exit(1)
-                    }
-                }
-                StoreType::Auto => {
-                    // first lookup in loose, if not found lookup in packed
-                    let obj = rsdos::io_loose::extract(&id, &cnt)?;
-                    if let Some(obj) = obj {
-                        let rdr = obj.make_reader()?;
-                        let mut buf_rdr = BufReader::new(rdr);
-                        let n = std::io::copy(&mut buf_rdr, &mut std::io::stdout())
-                            .with_context(|| "write object to stdout")?;
-
-                        // TODO: (v2) checksum
-                        anyhow::ensure!(
-                                    n == obj.expected_size,
-                                    "object has wrong size, expected: {}, got: {}, usually caused by data corruption",
-                                    obj.expected_size,
-                                    n
-                                );
-                    } else {
-                        let obj = rsdos::io_packs::extract(&id, &cnt)?;
-                        if let Some(obj) = obj {
-                            let rdr = obj.make_reader()?;
-                            let mut buf_rdr = BufReader::new(rdr);
-                            let n = std::io::copy(&mut buf_rdr, &mut std::io::stdout())
-                                .with_context(|| "write object to stdout")?;
-
-                            // TODO: (v2) checksum
-                            anyhow::ensure!(
-                                    n == obj.raw_size,
-                                    "object has wrong size, expected: {}, got: {}, usually caused by data corruption",
-                                    obj.raw_size,
-                                    n
-                                );
-                        } else {
-                            eprintln!("object {id} not found");
-                            std::process::exit(1)
-                        }
-                    }
-                }
-            };
+            if n.is_none() {
+                eprintln!("object {id} not found");
+                std::process::exit(1)
+            }
         } // TODO: validate/backup subcommands
     };
 
