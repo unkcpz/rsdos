@@ -4,9 +4,9 @@ use std::{env, fs};
 fn main() -> anyhow::Result<()> {
     let cnt_path = env::current_dir()?.join("sample_pack_all_loose");
     fs::create_dir_all(&cnt_path)?;
-    let n = 1;
+    let n = 100;
     let pack_target_size = 4 * 1024 * 1024 * 1024;
-    let config = rsdos::Config::new(pack_target_size, "none");
+    let config = rsdos::Config::new(pack_target_size, "zlib+1");
 
     let cnt = rsdos::Container::new(cnt_path);
     let args: Vec<String> = std::env::args().collect();

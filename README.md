@@ -191,7 +191,7 @@ https://surana.wordpress.com/2009/01/01/numbers-everyone-should-know/
 - [ ] (v2) `io_uring`
 - [ ] (v2) switch to using zstd instead of zlib
 - [x] CLI commands so can bench on large samples (200 GB SSSP repo).
-- [ ] Memory footprint tracking when packing, since rsdos use iterator it should be memory efficient.
+- [ ] Memory footprint tracking when packing, since rsdos use iterator it should be more memory efficient.
 - [ ] Dependency injection mode to attach progress bar to long run functions (py exposed interface as well)
 - [ ] docs as library
 - [ ] repack
@@ -199,7 +199,7 @@ https://surana.wordpress.com/2009/01/01/numbers-everyone-should-know/
 - [ ] validate
 - [ ] backup
 - [ ] benchmark on optimize/validate/backup ...
-- [ ] (v1) Explicit using buffer reader/writer to replace copy_by_chunk, need to symmetry use buf on reader and write for insert/extract. I need to decide in which timing to wrap reader as a BufReader, in `ReaderMaker` or in copy???
+- [ ] (v1) ~~Explicit using buffer reader/writer to replace copy_by_chunk, need to symmetry use buf on reader and write for insert/extract. I need to decide in which timing to wrap reader as a BufReader, in `ReaderMaker` or in copy???~~ (no gain on performance)
 - [ ] (v1) own rust benchmark on detail performance tuning.
 - [ ] (v1) Add mutex to the pack write, panic when other thread is writing. (or io_uring take care of async?)
 - [ ] (v2) Compress on adding to loose as git not just during packs. Header definition required.

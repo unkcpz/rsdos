@@ -24,3 +24,5 @@ codegen-units = 1
 
 [profile.dev]
 opt-level = 3
+overflow-checks = false
+lto = "fat"

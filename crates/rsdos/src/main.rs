@@ -30,6 +30,11 @@ enum OptimizeCommands {
         /// Disable compress object, default compression algorithm will be used.
         #[arg(long, default_value_t = false)]
         no_compress: bool,
+
+        /// Disable clean up after pack, clean up will delete duplicate objects in loose and vacuum
+        /// the DB.
+        #[arg(long, default_value_t = false)]
+        no_clean: bool,
     },
 
     /// repack objects in packs
@@ -229,12 +234,13 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::Optimize { cmd } => {
             match cmd {
-                OptimizeCommands::Pack { no_compress } => {
+                OptimizeCommands::Pack { no_compress, no_clean } => {
                     let cnt = Container::new(&cnt_path);
                     let cnt = match cnt.valid() {
                         Ok(cnt) => cnt,
                         Err(e) => anyhow::bail!(e),
                     };
+                    // get 
                     let compression = if no_compress {
                         Compression::from_str("none")?
                     } else {
@@ -247,6 +253,11 @@ fn main() -> anyhow::Result<()> {
                             std::process::exit(1);
                         },
                     );
+
+                    // TODO: clean loose that already packed
+                    if ! no_clean {
+                        todo!()
+                    }
                 }
                 OptimizeCommands::Repack { compression } => {
                     todo!()
