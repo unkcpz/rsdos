@@ -1,33 +1,32 @@
 use crate::Error;
 use bytes::Buf;
-use sha2::Digest;
+use ring::digest::{Algorithm, Context};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
 use std::{fs, usize};
 
-pub struct HashWriter<'a, W, H> {
+pub struct HashWriter<W> {
     pub writer: W,
-    pub hasher: &'a mut H,
+    pub ctx: Context,
 }
 
-impl<'a, W, H> HashWriter<'a, W, H>
+impl<W> HashWriter<W>
 where
     W: Write,
-    H: Digest,
 {
-    pub fn new(writer: W, hasher: &'a mut H) -> Self {
-        Self { writer, hasher }
+    pub fn new(writer: W, algorithm: &'static Algorithm) -> Self {
+        let ctx = Context::new(algorithm);
+        Self { writer, ctx }
     }
 }
 
-impl<'a, W, H> Write for HashWriter<'a, W, H>
+impl<W> Write for HashWriter<W>
 where
     W: Write,
-    H: Digest,
 {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         // hasher compute hash from original data pass to buf
-        self.hasher.update(buf);
+        self.ctx.update(buf);
 
         let n = self.writer.write(buf)?;
         Ok(n)
@@ -175,7 +174,7 @@ mod tests {
         // large binary text
         let mut f = tempfile::NamedTempFile::new().unwrap();
         let mut rng_bytes = (0..1000).map(|_| rand::random::<u8>()).collect::<Vec<_>>();
-        rng_bytes.push(0x00); // we use this condition so add it for sure test
+        rng_bytes.insert(100, 0x00); // we use this condition so add it for sure test
         f.write_all(&rng_bytes).unwrap();
         f.flush().unwrap();
 

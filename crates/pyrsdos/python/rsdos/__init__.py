@@ -103,7 +103,7 @@ class Container:
 
         # what not found in loose, try to find in packs
         # packs XXX: large speed overhead even no object in packs
-        for k, v in self.cnt.multi_pull_from_packs(not_found).items():
+        for k, v in self.cnt.extract_many_from_packs(not_found).items():
             d[k] = bytes(v)
 
         return d
@@ -113,7 +113,7 @@ class Container:
     ) -> t.Tuple[t.Dict[str, t.Optional[bytes]], t.List[str]]:
         d = {}
         not_found = []
-        for k, v in self.cnt.multi_pull_from_loose(hashkeys).items():
+        for k, v in self.cnt.extract_many_from_loose(hashkeys).items():
             if v is not None:
                 d[k] = bytes(v)
             else:
@@ -139,24 +139,32 @@ class Container:
     def add_objects_to_pack(  
         self,
         content_list: t.Union[t.List[bytes], t.Tuple[bytes, ...]],
-        compress: bool = False,
+        compress: bool | CompressMode = CompressMode.NO,
         no_holes: bool = False,
         no_holes_read_twice: bool = True,
         callback: t.Optional[t.Callable] = None,
         do_fsync: bool = True,
         do_commit: bool = True,
     ) -> t.List[str]:
-        hkey_lst = [i[1] for i in self.cnt.multi_push_to_packs(content_list)]
+        # To compatible with legacy dos
+        if isinstance(compress, bool):
+            if compress:
+                compress_mode = CompressMode.YES
+            else:
+                compress_mode = CompressMode.NO
+        else:
+            compress_mode = compress
+        hkey_lst = [i[1] for i in self.cnt.insert_many_to_packs(content_list, compress_mode.value)]
         return hkey_lst
             
 
     def add_streamed_object(self, stream: StreamReadBytesType) -> str:
-        _, hashkey = self.cnt.push_to_loose(stream)
+        _, hashkey = self.cnt.insert_to_loose(stream)
 
         return hashkey
 
     def add_streamed_object_to_packs(self, stream: StreamReadBytesType) -> str:
-        _, hashkey = self.cnt.push_to_packs(stream)
+        _, hashkey = self.cnt.insert_to_packs(stream)
 
         return hashkey
 

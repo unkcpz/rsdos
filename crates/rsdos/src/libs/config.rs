@@ -1,20 +1,8 @@
-use std::path::PathBuf;
-
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 const CONTAINER_VERSION: u32 = 1;
 const LOOSE_PREFIX_LEN: u32 = 2;
-
-#[derive(Debug, thiserror::Error)]
-#[allow(missing_docs)]
-pub enum Error {
-    #[error("Could not read the container config file at {}", .path.display())]
-    ConfigFileRead {
-        source: std::io::Error,
-        path: PathBuf,
-    },
-}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Config {

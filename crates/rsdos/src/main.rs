@@ -1,14 +1,17 @@
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 use human_bytes::human_bytes;
-use rsdos::add_file::StoreType;
+use rsdos::cli::StoreType;
+use rsdos::container::Compression;
 use rsdos::io::ReaderMaker;
 use rsdos::{config::Config, utils::create_dir, Container};
+use std::str::FromStr;
 use std::{env, fmt::Debug, path::PathBuf};
 
 use std::io::{self, BufReader, Write};
 
-/// Simple program to greet a person
+pub const DEFAULT_COMPRESSION_ALGORITHM: &str = "zlib:+1";
+
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -21,14 +24,36 @@ struct Args {
 }
 
 #[derive(Subcommand, Debug)]
+enum OptimizeCommands {
+    /// pack objects from loose to packed store
+    Pack {
+        /// Disable compress object, default compression algorithm will be used.
+        #[arg(long, default_value_t = false)]
+        no_compress: bool,
+
+        /// Disable clean up after pack, clean up will delete duplicate objects in loose and vacuum
+        /// the DB.
+        #[arg(long, default_value_t = false)]
+        no_clean: bool,
+    },
+
+    /// repack objects in packs
+    Repack {
+        /// Compression algorithm for repack
+        #[arg(short, long, default_value = DEFAULT_COMPRESSION_ALGORITHM, value_name = "COMPRESSION")]
+        compression: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
 enum Commands {
     /// Initialize container folder to store objects
     Init {
         /// Pack size (in GiB)
         #[arg(short, long, default_value_t = 4, value_name = "PACK_SIZE")]
         pack_size: u64,
-        
-        /// Compression algorithm none for not compressing data or 
+
+        /// Compression algorithm none for not compressing data or
         /// (format: <zalgo>:<level>, such as: zlib:+1 or zstd:-2)
         #[arg(short, long, default_value = "zstd:+1", value_name = "COMPRESSION")]
         compression: String,
@@ -42,26 +67,87 @@ enum Commands {
         /// One or more paths to files to add
         #[arg(required = true, value_name = "FILE(s)")]
         paths: Vec<PathBuf>,
+
+        /// Target store type, `loose`/`packs` to add to loose/packs.
+        /// Use `auto` (default) if you don't know.
+        #[arg(short, long, default_value = "auto", value_name = "TO")]
+        to: String,
     },
 
     /// Optimize the storage
     Optimize {
-        /// Disable compress object
-        #[arg(long, default_value_t = false)]
-        no_compress: bool,
-
-        /// Disable vacuum the databass
-        #[arg(long, default_value_t = true)]
-        no_vacuum: bool,
-        // TODO: no interactive, do without ask
+        #[command(subcommand)]
+        cmd: OptimizeCommands,
     },
 
     CatFile {
         #[arg(required = true)]
-        object_hash: String,
+        id: String,
+
+        /// Target store type, `loose`/`packs` to add to loose/packs.
+        /// Use `auto` (default) if you don't know.
+        #[arg(short, long, default_value = "auto", value_name = "FROM")]
+        from: String,
     },
 }
 
+fn extract(
+    id: &str,
+    cnt: &Container,
+    st: &StoreType,
+    mut to: impl Write,
+) -> anyhow::Result<Option<u64>> {
+    let n = match st {
+        StoreType::Loose => _extract_l(id, cnt, to)?,
+        StoreType::Packs => _extract_p(id, cnt, to)?,
+        StoreType::Auto => {
+            // first lookup in loose, if not found lookup in packed
+            _extract_l(id, cnt, &mut to)?.or_else(|| _extract_p(id, cnt, &mut to).ok()?)
+        }
+    };
+    Ok(n)
+}
+
+fn _extract_l(id: &str, cnt: &Container, mut to: impl Write) -> anyhow::Result<Option<u64>> {
+    let obj = rsdos::io_loose::extract(id, cnt)?;
+    if let Some(obj) = obj {
+        let rdr = obj.make_reader()?;
+        let mut buf_rdr = BufReader::new(rdr);
+        let n = std::io::copy(&mut buf_rdr, &mut to).with_context(|| "write object to stdout")?;
+
+        // TODO: (v2) checksum
+        anyhow::ensure!(
+            n == obj.expected_size,
+            "object has wrong size, expected: {}, got: {}, usually caused by data corruption",
+            obj.expected_size,
+            n
+        );
+        Ok(Some(n))
+    } else {
+        Ok(None)
+    }
+}
+
+fn _extract_p(id: &str, cnt: &Container, mut to: impl Write) -> anyhow::Result<Option<u64>> {
+    let obj = rsdos::io_packs::extract(id, cnt)?;
+    if let Some(obj) = obj {
+        let rdr = obj.make_reader()?;
+        let mut buf_rdr = BufReader::new(rdr);
+        let n = std::io::copy(&mut buf_rdr, &mut to).with_context(|| "write object to stdout")?;
+        // TODO: (v2) checksum
+        anyhow::ensure!(
+            n == obj.raw_size,
+            "object has wrong size, expected: {}, got: {}, usually caused by data corruption",
+            obj.raw_size,
+            n
+        );
+        Ok(Some(n))
+    } else {
+        Ok(None)
+    }
+}
+
+#[allow(clippy::too_many_lines)]
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     // If container path provided, using it
@@ -69,7 +155,10 @@ fn main() -> anyhow::Result<()> {
     let cnt_path = args.path.unwrap_or(env::current_dir()?.join("container"));
 
     match args.cmd {
-        Commands::Init { pack_size, compression } => {
+        Commands::Init {
+            pack_size,
+            compression,
+        } => {
             // if target not exist create folder
             if !cnt_path.exists() {
                 create_dir(&cnt_path)?;
@@ -81,6 +170,7 @@ fn main() -> anyhow::Result<()> {
                 format!("unable to initialize container at {}", cnt.path.display())
             })?;
         }
+        #[allow(clippy::cast_precision_loss)]
         Commands::Status => {
             let cnt = Container::new(&cnt_path);
             let cnt = match cnt.valid() {
@@ -110,7 +200,8 @@ fn main() -> anyhow::Result<()> {
 
             io::stdout().write_all(state.as_bytes())?;
         }
-        Commands::AddFiles { paths } => {
+        #[allow(clippy::cast_precision_loss)]
+        Commands::AddFiles { paths, to } => {
             let cnt = Container::new(&cnt_path);
             let cnt = match cnt.valid() {
                 Ok(cnt) => cnt,
@@ -123,7 +214,16 @@ fn main() -> anyhow::Result<()> {
                     continue;
                 }
 
-                let (hash_hex, filename, expected_size) = rsdos::add_file(&path, cnt, &StoreType::Loose)?;
+                let to = match to.as_str() {
+                    "auto" => StoreType::Auto,
+                    "loose" => StoreType::Loose,
+                    "packs" => StoreType::Packs,
+                    _ => {
+                        eprintln!("unknown store '{to}', expect 'auto', 'loose' or 'packs'");
+                        std::process::exit(1);
+                    }
+                };
+                let (hash_hex, filename, expected_size) = rsdos::add_file(&path, cnt, &to)?;
                 println!(
                     "{} - {}: {}",
                     hash_hex,
@@ -132,32 +232,55 @@ fn main() -> anyhow::Result<()> {
                 );
             }
         }
-        Commands::Optimize {
-            no_compress,
-            no_vacuum,
-        } => {
-            dbg!(no_compress, no_vacuum);
-        }
-        Commands::CatFile { object_hash } => {
-            // XXX: flag that support directly push to packs
-            let cnt = rsdos::Container::new(&cnt_path);
-            let obj = rsdos::io_loose::extract(&object_hash, &cnt)?;
-            match obj {
-                Some(obj) => {
-                    let mut buf_rdr = BufReader::new(obj.make_reader()?); 
-                    let n = std::io::copy(&mut buf_rdr, &mut std::io::stdout())
-                        .with_context(|| "write object to stdout")?;
+        Commands::Optimize { cmd } => {
+            match cmd {
+                OptimizeCommands::Pack { no_compress, no_clean } => {
+                    let cnt = Container::new(&cnt_path);
+                    let cnt = match cnt.valid() {
+                        Ok(cnt) => cnt,
+                        Err(e) => anyhow::bail!(e),
+                    };
+                    // get 
+                    let compression = if no_compress {
+                        Compression::from_str("none")?
+                    } else {
+                        Compression::from_str(DEFAULT_COMPRESSION_ALGORITHM)?
+                    };
 
-                    anyhow::ensure!(
-                        n == obj.expected_size,
-                        "file was not the expecwed size, expected: {}, got: {}",
-                        obj.expected_size,
-                        n
+                    rsdos::maintain::_pack_loose_internal(cnt, &compression).unwrap_or_else(
+                        |err| {
+                            eprintln!("failed on pack loose {err}");
+                            std::process::exit(1);
+                        },
                     );
+
+                    // TODO: clean loose that already packed
+                    if ! no_clean {
+                        todo!()
+                    }
                 }
+                OptimizeCommands::Repack { compression } => {
+                    todo!()
+                }
+            }
+        }
+        Commands::CatFile { id, from } => {
+            let cnt = rsdos::Container::new(&cnt_path);
+            let from = match from.as_str() {
+                "auto" => StoreType::Auto,
+                "loose" => StoreType::Loose,
+                "packs" => StoreType::Packs,
                 _ => {
-                    eprintln!("object {} not found in {}", object_hash, cnt_path.display());
+                    eprintln!("unknown store '{from}', expect 'auto', 'loose' or 'packs'");
+                    std::process::exit(1);
                 }
+            };
+            let mut to = std::io::stdout();
+            let n = extract(&id, &cnt, &from, &mut to)?;
+
+            if n.is_none() {
+                eprintln!("object {id} not found");
+                std::process::exit(1)
             }
         } // TODO: validate/backup subcommands
     };

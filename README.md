@@ -27,7 +27,7 @@ TODO:
 - Since insert/extract can interact with either loose or packed store, I use enum-based strategy.
 - naming convention are `loose` and `packed`. To compatible with legacy dos, if legacy container exist, `packs` is also valid.
 - `pack` is the operation to move objects from loose to packed store. It calling `insert_many` to packed store since no overhead on DB openning/closing. 
-- `repack` is on packed store and do the `pack` again using `sandbox` folder.
+- `repack` is on packed store and do the `pack` again using incremental pack_id (vacuum after).
 - Besides the `pack` and `repack` cases above, `insert_many` to packed store should not exposed to normal user. 
 - To make `Container` a generic type, things that implement `insert`, `extract`, `insert_many` and `extract_many` should be a Container no matter it is local or not. 
 - hashkey servers two purpose: 1. as the id of the object stored, this need to use sha256 to avoid duplicate 2. as the checksum to see if the lazy object read is valid, for this purpose can use cheap checksum.
@@ -124,6 +124,10 @@ This design at the same time makes the boundary looks symmetry in turns of read 
 - When add duplicate file, if add a file that has same content, will skip the move operation. 
 - `zstd` is faster than zlib: https://github.com/facebook/zstd?tab=readme-ov-file#benchmarks
 
+### Raw benchmark run on the CLI
+
+For pack, see summary in https://github.com/unkcpz/rsdos/pull/10 
+
 ### Time scales to be noticed (2009)
 https://surana.wordpress.com/2009/01/01/numbers-everyone-should-know/
 
@@ -149,7 +153,7 @@ https://surana.wordpress.com/2009/01/01/numbers-everyone-should-know/
 - gixoxide: https://github.com/Byron/gitoxide/blob/1a979221793a63cfc092e7e0c64854f8182cfaf0/etc/discovery/odb.md?plain=1#L172 
 - using `io_uring` for heavy io in an system async way.
 
-### Why legacy-dos is slow
+### Why legacy-dos is a bit slower than `rsdos`
 
 #### Python 
 
@@ -190,20 +194,21 @@ https://surana.wordpress.com/2009/01/01/numbers-everyone-should-know/
 - [ ] (v2) Use `sled` as k-v DB backend which should have better performance than sqlite [#1](https://github.com/unkcpz/rsdos/pull/1) 
 - [ ] (v2) `io_uring`
 - [ ] (v2) switch to using zstd instead of zlib
-- [ ] Memory footprint tracking when packing, since rsdos use iterator it should be memory efficient.
+- [x] CLI commands so can bench on large samples (200 GB SSSP repo).
+- [ ] Memory footprint tracking when packing, since rsdos use iterator it should be more memory efficient.
 - [ ] Dependency injection mode to attach progress bar to long run functions (py exposed interface as well)
 - [ ] docs as library
 - [ ] repack
-- [ ] optimize
+- [x] optimize
 - [ ] validate
 - [ ] backup
 - [ ] benchmark on optimize/validate/backup ...
-- [ ] own rust benchmark on detail performance tuning.
+- [ ] (v1) ~~Explicit using buffer reader/writer to replace copy_by_chunk, need to symmetry use buf on reader and write for insert/extract. I need to decide in which timing to wrap reader as a BufReader, in `ReaderMaker` or in copy???~~ (no gain on performance)
+- [ ] (v1) own rust benchmark on detail performance tuning.
+- [ ] (v1) Add mutex to the pack write, panic when other thread is writing. (or io_uring take care of async?)
 - [ ] (v2) Compress on adding to loose as git not just during packs. Header definition required.
 - [ ] (v2) hide direct write to packs and shading with the same loose structure
-- [ ] generic Container interface that can extent to host data in online storage (trait Container with insert/extract methods)
-- [ ] Add mutex to the pack write, panic when other thread is writing. (or io_uring take care of async?)
 - [ ] (v2) Rename packs -> packed
-- [ ] migation plan and CLI tool
-- [ ] Explicit using buffer reader/writer to replace copy_by_chunk, need to symmetry use buf on reader and write for insert/extract. I need to decide in which timing to wrap reader as a BufReader, in `ReaderMaker` or in copy???
+- [ ] (v2) migation plan and CLI tool (v1 is design to compatible to w/r legacy dos repo and same interface, v2 has API change therefore take care of migaration.)
 - [ ] (v3) integrate with OpenDAL for unified interface
+- [ ] (v3) (dup as above?) generic Container interface that can extent to host data in online storage (trait Container with insert/extract methods)

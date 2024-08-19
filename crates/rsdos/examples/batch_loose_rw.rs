@@ -1,5 +1,5 @@
 use indicatif::ProgressBar;
-use sha2::{Digest, Sha256};
+use ring::digest;
 use std::{env, fs};
 
 fn main() -> anyhow::Result<()> {
@@ -28,7 +28,7 @@ fn main() -> anyhow::Result<()> {
             "bench" => {
                 let arg2 = args.get(2).unwrap();
                 match &arg2[..] {
-                    "push" => {
+                    "insert" => {
                         let bar = ProgressBar::new(n);
 
                         for i in 0..n {
@@ -40,13 +40,11 @@ fn main() -> anyhow::Result<()> {
                             rsdos::io_loose::insert(bstring, &cnt)?;
                         }
                     }
-                    "pull" => {
+                    "extract" => {
                         // FN to benchmark
-                        let mut hasher = Sha256::new();
                         for i in 0..n {
                             let content = "test".repeat(i as usize);
-                            hasher.update(content.as_bytes());
-                            let hashkey = &hasher.finalize_reset();
+                            let hashkey = digest::digest(&digest::SHA384, content.as_bytes());
                             let hashkey = hex::encode(hashkey);
 
                             let _ = rsdos::io_loose::extract(&hashkey, &cnt)?;

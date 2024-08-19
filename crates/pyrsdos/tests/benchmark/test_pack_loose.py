@@ -56,7 +56,7 @@ def test_pack_loose_10_py(benchmark, tmp_path, compress_mode, nrepeat):
     [
         # 5 MiB, 5 KiB, 5 bytes
         (CompressMode.YES, 5 * 1024 * 1024),
-        (CompressMode.NO, 5 * 1024 * 1024), 
+        (CompressMode.NO, 5 * 1024 * 1024),
         (CompressMode.YES, 5 * 1024), 
         (CompressMode.NO, 5 * 1024),
         (CompressMode.YES, 5), 
@@ -191,7 +191,7 @@ def test_pack_loose_over_many_packs_py(benchmark, tmp_path, compress_mode, nrepe
         (CompressMode.NO, 64, 4 * 1024 * 1024),
     ])
 @pytest.mark.benchmark(group="pack_cross_packed_files")
-def test_pack_loose_over_many_packs_ps(benchmark, tmp_path, compress_mode, nrepeat, pack_size):
+def test_pack_loose_over_many_packs_rs(benchmark, tmp_path, compress_mode, nrepeat, pack_size):
     """The test to find out the delay for creating more packed files, 
     The first case will create many packed files, the second one has large target size that will have id = 0 pack open and written
     """

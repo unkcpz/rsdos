@@ -1,5 +1,5 @@
 use indicatif::ProgressBar;
-use sha2::{Digest, Sha256};
+use ring::digest;
 use std::{env, fs};
 
 fn main() -> anyhow::Result<()> {
@@ -38,11 +38,8 @@ fn main() -> anyhow::Result<()> {
                 // FN to benchmark
                 let hashkeys: Vec<String> = (0..n)
                     .map(|i| -> String {
-                        // let content = format!("test {i}");
                         let content = "test".repeat(i as usize);
-                        let mut hasher = Sha256::new();
-                        hasher.update(content.as_bytes());
-                        let hashkey = hasher.finalize();
+                        let hashkey = digest::digest(&digest::SHA384, content.as_bytes());
                         hex::encode(hashkey)
                     })
                     .collect();

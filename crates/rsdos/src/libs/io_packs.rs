@@ -1,8 +1,8 @@
 use flate2;
 use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
+use ring::digest;
 use rusqlite::{params, params_from_iter, Connection};
-use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::{self, Read, Seek, SeekFrom, Take};
 use std::path::{Path, PathBuf};
@@ -304,7 +304,6 @@ where
         .read(true)
         .open(cwp)?;
     let mut offset = cwp.seek(io::SeekFrom::End(0))?;
-    let mut hasher = Sha256::new();
 
     let mut nbytes_hash = Vec::new();
     let mut sources = sources.into_iter().peekable();
@@ -336,53 +335,41 @@ where
             let chunk_size = 65_536;
 
             // XXX: for if need to do the valitation for the hash, the idea is to having an object
-            // encapsulate the pre-computed hash. For Readers that has no pre-compute hash it return
+            // encapsulate the pre-computed hash (better with cheap checksum). For Readers that has no pre-compute hash it return
             // None. The method is from ReaderMaker and calling rmaker.expected_hash(). If the hash
             // already exist and do not need to run validation, the writer can be normal writer without
             // hash.
 
-            // The buff (when calling `copy_by_chunk`) is created from reader (e.g. the original data) so does not matter
-            // HashWriter wraps Compression Writer or v.v.
             let mut stream = rmaker.make_reader()?;
 
-            let (bytes_read, bytes_write, hash_hex, compressed) = match compression {
-                Compression::Uncompressed => {
-                    let mut writer = HashWriter::new(&mut cwp, &mut hasher);
-                    let bytes_copied = copy_by_chunk(&mut stream, &mut writer, chunk_size)?;
-
-                    let hash = hasher.finalize_reset();
+            let (bytes_read, hash_hex, compressed) = match (compression, rmaker.maybe_content_format()) {
+                (Compression::Zlib(level), Ok(MaybeContentFormat::MaybeLargeText)) => {
+                    // get hash of raw bytes and then z file therefore hash is between encoder and
+                    // original writer (.i.e cwp)
+                    let mut writer =
+                        ZlibEncoder::new(&mut cwp, flate2::Compression::new(*level));
+                    let mut hwriter = HashWriter::new(&mut writer, &digest::SHA256);
+                    let bytes_copied = copy_by_chunk(&mut stream, &mut hwriter, chunk_size)?;
+                    let hash = hwriter.ctx.finish();
                     let hash_hex = hex::encode(hash);
-                    (bytes_copied, bytes_copied, hash_hex, false)
+
+                    (bytes_copied, hash_hex, true)
                 }
-                Compression::Zlib(level) => {
-                    if let Ok(MaybeContentFormat::MaybeLargeText) = rmaker.maybe_content_format() {
-                        let mut zwriter = ZlibEncoder::new(&cwp, flate2::Compression::new(*level));
-                        let mut writer = HashWriter::new(&mut zwriter, &mut hasher);
-                        let _ = copy_by_chunk(&mut stream, &mut writer, chunk_size)?;
-
-                        // flate2 out contains 2bytes zlib header and 4 bytes CRC checksum, while
-                        // total_out did not count as bytes write.
-                        // See: https://github.com/rust-lang/flate2-rs/issues/246
-                        let bytes_write = zwriter.total_out() + 6;
-
-                        let hash = hasher.finalize_reset();
-                        let hash_hex = hex::encode(hash);
-
-                        (zwriter.total_in(), bytes_write, hash_hex, true)
-                    } else {
-                        // TODO: this can be combined with Uncompressed case
-                        let mut writer = HashWriter::new(&mut cwp, &mut hasher);
-                        let bytes_copied = copy_by_chunk(&mut stream, &mut writer, chunk_size)?;
-
-                        let hash = hasher.finalize_reset();
-                        let hash_hex = hex::encode(hash);
-                        (bytes_copied, bytes_copied, hash_hex, false)
-                    }
-                }
-                Compression::Zstd(_) => {
+                (Compression::Zstd(_), Ok(MaybeContentFormat::MaybeLargeText)) => {
                     todo!()
                 }
+                _ => {
+                    let mut hwriter = HashWriter::new(&mut cwp, &digest::SHA256);
+                    let bytes_copied = copy_by_chunk(&mut stream, &mut hwriter, chunk_size)?;
+                    let hash = hwriter.ctx.finish();
+                    let hash_hex = hex::encode(hash);
+
+                    (bytes_copied, hash_hex, false)
+                }
             };
+
+            // look at the end of cwp compute how many bytes had been written
+            let bytes_write = cwp.stream_position()? - offset;
 
             let mut stmt = tx.prepare_cached("INSERT OR IGNORE INTO db_object (hashkey, compressed, size, offset, length, pack_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
             stmt.execute(params![

@@ -1,6 +1,7 @@
 use rusqlite::Connection;
 
-use crate::{container::Compression, io_packs, status::traverse_loose, Container, Error};
+use crate::container::{traverse_loose, Compression, Container};
+use crate::{io_packs, Error};
 
 pub fn pack_loose(cnt: &Container) -> Result<(), Error> {
     let compression = cnt.compression()?;
