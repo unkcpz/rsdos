@@ -10,6 +10,7 @@ fn main() -> anyhow::Result<()> {
     let config = rsdos::Config::new(pack_target_size, "zlib+1");
 
     let cnt = rsdos::Container::new(cnt_path);
+    let db = sled::open(cnt.packs_db()).unwrap();
     let args: Vec<String> = std::env::args().collect();
     let arg1 = args.get(1).unwrap();
 
@@ -34,7 +35,7 @@ fn main() -> anyhow::Result<()> {
                 fs::remove_dir_all(cnt.path)?;
             }
             "bench" => {
-                rsdos::maintain::pack_loose(&cnt)?;
+                rsdos::maintain::pack_loose(&cnt, &db)?;
             }
             _ => anyhow::bail!(
                 "unknown flag `{}`, expect `purge`, `bench` or `reset`",

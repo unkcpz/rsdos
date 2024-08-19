@@ -49,10 +49,10 @@ pub enum Error {
     IntegrityError { expected: String, got: String},
 
     // db module erors
-    #[error("rusqlite error")]
-    RusqliteError(#[from] rusqlite::Error),
+    #[error("sled error")]
+    SledError(#[from] sled::Error),
     #[error("Could not select from DB")]
-    SQLiteSelectError { source: rusqlite::Error },
+    SledSelectError { source: sled::Error },
     #[error("Could not insert to DB")]
-    SQLiteInsertError { source: rusqlite::Error },
+    SledInsertError { source: sled::Error },
 }

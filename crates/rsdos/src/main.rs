@@ -94,15 +94,16 @@ enum Commands {
 fn extract(
     id: &str,
     cnt: &Container,
+    db: &sled::Db,
     st: &StoreType,
     mut to: impl Write,
 ) -> anyhow::Result<Option<u64>> {
     let n = match st {
         StoreType::Loose => _extract_l(id, cnt, to)?,
-        StoreType::Packs => _extract_p(id, cnt, to)?,
+        StoreType::Packs => _extract_p(id, cnt, db, to)?,
         StoreType::Auto => {
             // first lookup in loose, if not found lookup in packed
-            _extract_l(id, cnt, &mut to)?.or_else(|| _extract_p(id, cnt, &mut to).ok()?)
+            _extract_l(id, cnt, &mut to)?.or_else(|| _extract_p(id, cnt, db, &mut to).ok()?)
         }
     };
     Ok(n)
@@ -128,8 +129,8 @@ fn _extract_l(id: &str, cnt: &Container, mut to: impl Write) -> anyhow::Result<O
     }
 }
 
-fn _extract_p(id: &str, cnt: &Container, mut to: impl Write) -> anyhow::Result<Option<u64>> {
-    let obj = rsdos::io_packs::extract(id, cnt)?;
+fn _extract_p(id: &str, cnt: &Container, db: &sled::Db, mut to: impl Write) -> anyhow::Result<Option<u64>> {
+    let obj = rsdos::io_packs::extract(id, cnt, db)?;
     if let Some(obj) = obj {
         let rdr = obj.make_reader()?;
         let mut buf_rdr = BufReader::new(rdr);
@@ -173,12 +174,13 @@ fn main() -> anyhow::Result<()> {
         #[allow(clippy::cast_precision_loss)]
         Commands::Status => {
             let cnt = Container::new(&cnt_path);
+            let db = sled::open(cnt.packs_db()).unwrap();
             let cnt = match cnt.valid() {
                 Ok(cnt) => cnt,
                 Err(e) => anyhow::bail!(e),
             };
 
-            let info = rsdos::stat(cnt).with_context(|| "unable to get container stat")?;
+            let info = rsdos::stat(cnt, &db).with_context(|| "unable to get container stat")?;
             // print status to stdout
             let state = String::new()
                         // container info
@@ -207,6 +209,7 @@ fn main() -> anyhow::Result<()> {
                 Ok(cnt) => cnt,
                 Err(e) => anyhow::bail!(e),
             };
+            let db = sled::open(cnt.packs_db())?;
 
             for path in paths {
                 if !path.is_file() {
@@ -223,7 +226,7 @@ fn main() -> anyhow::Result<()> {
                         std::process::exit(1);
                     }
                 };
-                let (hash_hex, filename, expected_size) = rsdos::add_file(&path, cnt, &to)?;
+                let (hash_hex, filename, expected_size) = rsdos::add_file(&path, cnt, &db, &to)?;
                 println!(
                     "{} - {}: {}",
                     hash_hex,
@@ -240,6 +243,8 @@ fn main() -> anyhow::Result<()> {
                         Ok(cnt) => cnt,
                         Err(e) => anyhow::bail!(e),
                     };
+                    let db = sled::open(cnt.packs_db())?;
+
                     // get 
                     let compression = if no_compress {
                         Compression::from_str("none")?
@@ -247,7 +252,7 @@ fn main() -> anyhow::Result<()> {
                         Compression::from_str(DEFAULT_COMPRESSION_ALGORITHM)?
                     };
 
-                    rsdos::maintain::_pack_loose_internal(cnt, &compression).unwrap_or_else(
+                    rsdos::maintain::_pack_loose_internal(cnt, &db, &compression).unwrap_or_else(
                         |err| {
                             eprintln!("failed on pack loose {err}");
                             std::process::exit(1);
@@ -266,6 +271,7 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::CatFile { id, from } => {
             let cnt = rsdos::Container::new(&cnt_path);
+            let db = sled::open(cnt.packs_db())?;
             let from = match from.as_str() {
                 "auto" => StoreType::Auto,
                 "loose" => StoreType::Loose,
@@ -276,7 +282,7 @@ fn main() -> anyhow::Result<()> {
                 }
             };
             let mut to = std::io::stdout();
-            let n = extract(&id, &cnt, &from, &mut to)?;
+            let n = extract(&id, &cnt, &db, &from, &mut to)?;
 
             if n.is_none() {
                 eprintln!("object {id} not found");

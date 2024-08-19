@@ -22,7 +22,7 @@ ring = "0.17.8"
 rusqlite = "0.32.0"
 serde = { version = "1.0.204", features = ["derive"] }
 serde_json = "1.0.120"
-sled = { version = "0.34.7", features = ["io_uring"] }
+sled = "0.34.7"
 tempfile = "3.10.1"
 thiserror = "1.0.63"
 uuid = { version = "1.10.0", features = ["serde", "v4"] }

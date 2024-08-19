@@ -2,13 +2,12 @@ use flate2;
 use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
 use ring::digest;
-use rusqlite::{params, params_from_iter, Connection};
 use std::fs::{self, File};
 use std::io::{self, Read, Seek, SeekFrom, Take};
 use std::path::{Path, PathBuf};
 
 use crate::container::Compression;
-use crate::db::PackEntry;
+use crate::db::{select, PackEntry};
 use crate::io::{copy_by_chunk, ByteString, HashWriter, MaybeContentFormat, ReaderMaker};
 use crate::{db, Container};
 
@@ -102,10 +101,9 @@ impl ReaderMaker for PObject {
 // The reason is that read will first fill the memory so kind of a problem when reading large
 // file. For a single read, the reader can be returned (file with offset and size to read), and
 // then proceed with write to writer using buffer reader/writer.
-pub fn extract(hashkey: &str, cnt: &Container) -> Result<Option<PObject>, Error> {
+pub fn extract(hashkey: &str, cnt: &Container, db: &sled::Db) -> Result<Option<PObject>, Error> {
     cnt.valid()?;
-    let conn = Connection::open(cnt.packs_db())?;
-    if let Some(pn) = db::select(&conn, hashkey)? {
+    if let Some(pn) = db::select(db, hashkey)? {
         let pack_id = pn.pack_id;
         let loc = cnt.packs().join(format!("{pack_id}"));
         let obj = PObject::new(hashkey, loc, pn.offset, pn.raw_size, pn.size, pn.compressed);
@@ -140,6 +138,7 @@ where
 pub fn extract_many<'a, I>(
     hashkeys: I,
     cnt: &'a Container,
+    db: &'a sled::Db,
 ) -> Result<impl Iterator<Item = PObject> + 'a, Error>
 where
     I: IntoIterator + 'a,
@@ -151,56 +150,17 @@ where
     let _max_chunk_iterate_length = 9500;
     let in_sql_max_length = 950;
 
-    let conn = Connection::open(cnt.packs_db())?;
     let chunked_iter = _chunked(hashkeys.into_iter(), in_sql_max_length);
 
-    // XXX: why not work??
-    // let chunked_iter = std::iter::from_fn(move || {
-    //     let chunk: Vec<_> = hashkeys.into_iter().by_ref().take(in_sql_max_length).collect();
-    //     if chunk.is_empty() {
-    //         None
-    //     } else {
-    //         Some(chunk)
-    //     }
-    // });
-
-    // NOTE: I believe when yield is available in rust (https://without.boats/blog/a-four-year-plan/)
-    // this can be more straightforward implemented. I was quite struggle with the ownership here
-    // and have to use move for both `chunk` and inner iterator.
     let iter_vec = chunked_iter.flat_map(move |chunk| {
-        let placeholders: Vec<&str> = (0..chunk.len()).map(|_| "?").collect();
-        let mut stmt = conn.prepare_cached(&format!("SELECT hashkey, compressed, size, offset, length, pack_id FROM db_object WHERE hashkey IN ({})", placeholders.join(","))).unwrap();
         let chunk = chunk.into_iter().map(|x| x.to_string());
-        let rows = stmt
-            .query_map(params_from_iter(chunk), |row| {
-                let hashkey: String = row.get(0)?;
-                let compressed: bool = row.get(1)?;
-                let raw_size: u64 = row.get(2)?;
-                let offset: u64 = row.get(3)?;
-                let size: u64 = row.get(4)?;
-                let pack_id: u64 = row.get(5)?;
-
-                Ok(PackEntry {
-                    hashkey,
-                    compressed,
-                    raw_size,
-                    size,
-                    offset,
-                    pack_id,
-                })
-            }).expect("query failed");
-        let mut rows = rows
-            .filter_map(Result::ok)
-            .collect::<Vec<_>>();
+        let rows = chunk.into_iter().map(|hashkey| select(db, &hashkey));
+        let mut rows = rows.filter_map(|r| r.ok().flatten()).collect::<Vec<_>>();
 
         std::iter::from_fn(move || {
             if let Some(pn) = rows.pop() {
-                let pack_id = pn.pack_id;
-                // XXX: I should not return Result for cnt.<subfolder>, instead better to valitate
-                // the cnt and then just return PathBuf. Then I can get rid of `unwrap` for some
-                // places.
                 let packs_path = cnt.packs();
-                let loc = packs_path.join(format!("{pack_id}"));
+                let loc = packs_path.join(format!("{}", pn.pack_id));
                 let obj = PObject::new(
                     &pn.hashkey,
                     loc,
@@ -213,17 +173,16 @@ where
             } else {
                 None
             }
-
         })
     });
     Ok(iter_vec)
 }
 
-pub fn insert<T>(source: T, cnt: &Container) -> Result<(u64, String), Error>
+pub fn insert<T>(source: T, cnt: &Container, db: &sled::Db) -> Result<(u64, String), Error>
 where
     T: ReaderMaker,
 {
-    let (bytes_copied, hash_hex) = insert_many(vec![source], cnt)?
+    let (bytes_copied, hash_hex) = insert_many(vec![source], cnt, db)?
         .first()
         .map(|(n, hash)| (*n, hash.clone()))
         .unwrap();
@@ -271,18 +230,23 @@ fn find_current_pack_id(packs: &PathBuf, pack_size_target: u64) -> Result<u64, E
     Ok(current_pack_id)
 }
 
-pub fn insert_many<I>(sources: I, cnt: &Container) -> Result<Vec<(u64, String)>, Error>
+pub fn insert_many<I>(
+    sources: I,
+    cnt: &Container,
+    db: &sled::Db,
+) -> Result<Vec<(u64, String)>, Error>
 where
     I: IntoIterator,
     I::Item: ReaderMaker,
 {
     let compression = cnt.compression()?;
-    _insert_many_internal(sources, cnt, &compression)
+    _insert_many_internal(sources, cnt, db, &compression)
 }
 
 pub fn _insert_many_internal<I>(
     sources: I,
     cnt: &Container,
+    db: &sled::Db,
     compression: &Compression,
 ) -> Result<Vec<(u64, String)>, Error>
 where
@@ -291,7 +255,6 @@ where
 {
     cnt.valid()?;
 
-    let mut conn = Connection::open(cnt.packs_db())?;
     let packs = cnt.packs();
     let pack_size_target = cnt.config()?.pack_size_target;
 
@@ -311,7 +274,6 @@ where
     // outer loop control the increment of pack id
     loop {
         // transaction for every pack writing
-        let tx = conn.transaction()?;
         if offset >= pack_size_target {
             // reset when move to new pack
             cwp_id += 1;
@@ -342,45 +304,47 @@ where
 
             let mut stream = rmaker.make_reader()?;
 
-            let (bytes_read, hash_hex, compressed) = match (compression, rmaker.maybe_content_format()) {
-                (Compression::Zlib(level), Ok(MaybeContentFormat::MaybeLargeText)) => {
-                    // get hash of raw bytes and then z file therefore hash is between encoder and
-                    // original writer (.i.e cwp)
-                    let mut writer =
-                        ZlibEncoder::new(&mut cwp, flate2::Compression::new(*level));
-                    let mut hwriter = HashWriter::new(&mut writer, &digest::SHA256);
-                    let bytes_copied = copy_by_chunk(&mut stream, &mut hwriter, chunk_size)?;
-                    let hash = hwriter.ctx.finish();
-                    let hash_hex = hex::encode(hash);
+            let (bytes_read, hash_hex, compressed) =
+                match (compression, rmaker.maybe_content_format()) {
+                    (Compression::Zlib(level), Ok(MaybeContentFormat::MaybeLargeText)) => {
+                        // get hash of raw bytes and then z file therefore hash is between encoder and
+                        // original writer (.i.e cwp)
+                        let mut writer =
+                            ZlibEncoder::new(&mut cwp, flate2::Compression::new(*level));
+                        let mut hwriter = HashWriter::new(&mut writer, &digest::SHA256);
+                        let bytes_copied = copy_by_chunk(&mut stream, &mut hwriter, chunk_size)?;
+                        let hash = hwriter.ctx.finish();
+                        let hash_hex = hex::encode(hash);
 
-                    (bytes_copied, hash_hex, true)
-                }
-                (Compression::Zstd(_), Ok(MaybeContentFormat::MaybeLargeText)) => {
-                    todo!()
-                }
-                _ => {
-                    let mut hwriter = HashWriter::new(&mut cwp, &digest::SHA256);
-                    let bytes_copied = copy_by_chunk(&mut stream, &mut hwriter, chunk_size)?;
-                    let hash = hwriter.ctx.finish();
-                    let hash_hex = hex::encode(hash);
+                        (bytes_copied, hash_hex, true)
+                    }
+                    (Compression::Zstd(_), Ok(MaybeContentFormat::MaybeLargeText)) => {
+                        todo!()
+                    }
+                    _ => {
+                        let mut hwriter = HashWriter::new(&mut cwp, &digest::SHA256);
+                        let bytes_copied = copy_by_chunk(&mut stream, &mut hwriter, chunk_size)?;
+                        let hash = hwriter.ctx.finish();
+                        let hash_hex = hex::encode(hash);
 
-                    (bytes_copied, hash_hex, false)
-                }
-            };
+                        (bytes_copied, hash_hex, false)
+                    }
+                };
 
             // look at the end of cwp compute how many bytes had been written
             let bytes_write = cwp.stream_position()? - offset;
 
-            let mut stmt = tx.prepare_cached("INSERT OR IGNORE INTO db_object (hashkey, compressed, size, offset, length, pack_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
-            stmt.execute(params![
-                &hash_hex,
+            let value = PackEntry {
+                hashkey: hash_hex.clone(),
+                raw_size: bytes_read,
                 compressed,
-                bytes_read,
+                size: bytes_write as u64,
                 offset,
-                bytes_write,
-                cwp_id,
-            ])
-            .map_err(|err| Error::SQLiteInsertError { source: err })?;
+                pack_id: cwp_id,
+            };
+            let value =
+                bincode::serialize(&value).expect(&format!("unable to serialize {:?}", &value));
+            db.insert(hash_hex.as_bytes(), value)?;
             offset += bytes_write;
 
             // TODO: Should be removed bytes_write with considering using cheap checksum for PObject.
@@ -390,8 +354,6 @@ where
                 break;
             }
         }
-
-        tx.commit()?;
     }
 
     Ok(nbytes_hash)
@@ -413,18 +375,19 @@ mod tests {
     #[test]
     fn io_packs_insert_0_when_empty() {
         let cnt = gen_tmp_container(PACK_TARGET_SIZE, "none").lock().unwrap();
+        let db = sled::open(cnt.packs_db()).unwrap();
 
         let bstr: ByteString = b"test 0".to_vec();
-        let (_, hash) = insert(bstr, &cnt).unwrap();
+        let (_, hash) = insert(bstr, &cnt, &db).unwrap();
 
         // check packs has `0` and audit has only one pack
         // check content of 0 pack is `test 0`
-        let info = stat(&cnt).unwrap();
+        let info = stat(&cnt, &db).unwrap();
         assert_eq!(info.count.packs_file, 1);
         assert_eq!(info.count.packs, 1);
 
         // also check pack DB point to correct location to extract content
-        let obj = extract(&hash, &cnt).unwrap().unwrap();
+        let obj = extract(&hash, &cnt, &db).unwrap().unwrap();
         assert_eq!(
             String::from_utf8(obj.to_bytes().unwrap()).unwrap(),
             "test 0".to_string()
@@ -432,15 +395,15 @@ mod tests {
 
         // subsquent add will still goes to pack 0 (since pack_target_size is 4 GiB)
         let bstr: ByteString = b"test 1".to_vec();
-        let (_, hash) = insert(bstr, &cnt).unwrap();
+        let (_, hash) = insert(bstr, &cnt, &db).unwrap();
 
         // check packs has `0` and audit has only one pack
         // check content of 0 pack is `test 0`
-        let info = stat(&cnt).unwrap();
+        let info = stat(&cnt, &db).unwrap();
         assert_eq!(info.count.packs_file, 1);
         assert_eq!(info.count.packs, 2);
 
-        let obj = extract(&hash, &cnt).unwrap().unwrap();
+        let obj = extract(&hash, &cnt, &db).unwrap().unwrap();
         assert_eq!(
             String::from_utf8(obj.to_bytes().unwrap()).unwrap(),
             "test 1".to_string()
@@ -450,6 +413,7 @@ mod tests {
     #[test]
     fn io_packs_insert_1_when_1_exist() {
         let cnt = gen_tmp_container(PACK_TARGET_SIZE, "none").lock().unwrap();
+        let db = sled::open(cnt.packs_db()).unwrap();
 
         // create fack placeholder empty pack 0 and pack 1
         // it is expected that content will be added to pack1
@@ -458,15 +422,15 @@ mod tests {
         fs::File::create(packs.join("1")).unwrap();
 
         let bstr: ByteString = b"test 0".to_vec();
-        let (_, hash) = insert(bstr, &cnt).unwrap();
+        let (_, hash) = insert(bstr, &cnt, &db).unwrap();
 
         // check packs has 2 packs
         // check content of 1 pack is `test 0`
-        let info = stat(&cnt).unwrap();
+        let info = stat(&cnt, &db).unwrap();
         assert_eq!(info.count.packs_file, 2);
         assert_eq!(info.count.packs, 1);
 
-        let obj = extract(&hash, &cnt).unwrap().unwrap();
+        let obj = extract(&hash, &cnt, &db).unwrap().unwrap();
         assert_eq!(
             String::from_utf8(obj.to_bytes().unwrap()).unwrap(),
             "test 0".to_string()
@@ -476,6 +440,7 @@ mod tests {
     #[test]
     fn io_packs_insert_2_when_1_reach_limit() {
         let cnt = gen_tmp_container(PACK_TARGET_SIZE, "none").lock().unwrap();
+        let db = sled::open(cnt.packs_db()).unwrap();
         let pack_target_size = cnt.config().unwrap().pack_size_target;
 
         // snuck limit size of bytes into pack 1 and new bytes will go to pack 2
@@ -492,18 +457,18 @@ mod tests {
         for i in 0..100 {
             let content = format!("test {i}");
             let buf = content.clone().into_bytes();
-            let (_, hash) = insert(buf, &cnt).unwrap();
+            let (_, hash) = insert(buf, &cnt, &db).unwrap();
             hash_content_map.insert(hash, content);
         }
 
         // check packs has 2 packs
         // check content of 1 pack is `test 0`
-        let info = stat(&cnt).unwrap();
+        let info = stat(&cnt, &db).unwrap();
         assert_eq!(info.count.packs_file, 3);
         assert_eq!(info.count.packs, 100);
 
         for (hash, content) in hash_content_map {
-            let obj = extract(&hash, &cnt).unwrap().unwrap();
+            let obj = extract(&hash, &cnt, &db).unwrap().unwrap();
             assert_eq!(String::from_utf8(obj.to_bytes().unwrap()).unwrap(), content);
         }
     }
@@ -511,24 +476,25 @@ mod tests {
     #[test]
     fn io_packs_extract_from_any_single() {
         let cnt = gen_tmp_container(6400, "none").lock().unwrap();
+        let db = sled::open(cnt.packs_db()).unwrap();
         let n = 100;
 
         let mut hash_content_map: HashMap<String, String> = HashMap::new();
         for i in 0..n {
             let content = format!("test {i}");
             let buf = content.clone().into_bytes();
-            let (_, hash) = insert(buf, &cnt).unwrap();
+            let (_, hash) = insert(buf, &cnt, &db).unwrap();
             hash_content_map.insert(hash, content);
         }
 
         // check packs has 2 packs
         // check content of 1 pack is `test 0`
-        let info = stat(&cnt).unwrap();
+        let info = stat(&cnt, &db).unwrap();
         assert_eq!(info.count.packs_file, 1);
         assert_eq!(info.count.packs, n);
 
         for (hash, content) in hash_content_map {
-            let obj = extract(&hash, &cnt).unwrap().unwrap();
+            let obj = extract(&hash, &cnt, &db).unwrap().unwrap();
             assert_eq!(String::from_utf8(obj.to_bytes().unwrap()).unwrap(), content);
         }
     }
@@ -536,16 +502,17 @@ mod tests {
     #[test]
     fn io_packs_inselt_many() {
         let cnt = gen_tmp_container(64, "zlib:+1").lock().unwrap();
+        let db = sled::open(cnt.packs_db()).unwrap();
 
         let mut hash_content_map: HashMap<String, String> = HashMap::new();
         for i in 0..100 {
             let content = format!("test {i}").repeat(i);
             let buf = content.clone().into_bytes();
-            let (_, hash) = insert(buf, &cnt).unwrap();
+            let (_, hash) = insert(buf, &cnt, &db).unwrap();
             hash_content_map.insert(hash, content);
         }
 
-        let info = stat(&cnt).unwrap();
+        let info = stat(&cnt, &db).unwrap();
         assert_eq!(info.count.packs_file, 34);
         assert_eq!(info.count.packs, 100);
     }
@@ -556,16 +523,17 @@ mod tests {
     #[case("zlib:+9")]
     fn io_packs_extract_many(#[case] algo: &str) {
         let cnt = gen_tmp_container(64, algo).lock().unwrap();
+        let db = sled::open(cnt.packs_db()).unwrap();
 
         let mut hash_content_map: HashMap<String, String> = HashMap::new();
         for i in 0..100 {
             let content = format!("test {i}").repeat(i);
             let buf = content.clone().into_bytes();
-            let (_, hash) = insert(buf, &cnt).unwrap();
+            let (_, hash) = insert(buf, &cnt, &db).unwrap();
             hash_content_map.insert(hash, content);
         }
 
-        let info = stat(&cnt).unwrap();
+        let info = stat(&cnt, &db).unwrap();
         assert_eq!(info.count.packs, 100);
 
         let mut hashkeys = hash_content_map
@@ -578,7 +546,7 @@ mod tests {
         hashkeys
             .push("7e76df6ac7d08a837f7212e765edd07333c8159ffa0484bc26394e7ffd898817".to_string());
 
-        let objs = extract_many(&hashkeys, &cnt).unwrap();
+        let objs = extract_many(&hashkeys, &cnt, &db).unwrap();
 
         let mut count = 0;
         for obj in objs {
@@ -599,17 +567,18 @@ mod tests {
     /// Test if the content size is larger than the copy chunk size (64KiB)
     fn io_packs_extract_many_large_content(#[case] algo: &str) {
         let cnt = gen_tmp_container(64 * 1024 * 1024, algo).lock().unwrap();
+        let db = sled::open(cnt.packs_db()).unwrap();
 
         let mut hash_content_map: HashMap<String, String> = HashMap::new();
         for i in 0..10 {
             // create a 800 KiB data
             let content = format!("8bytes{i}").repeat(100 * 1024);
             let buf = content.clone().into_bytes();
-            let (_, hash) = insert(buf, &cnt).unwrap();
+            let (_, hash) = insert(buf, &cnt, &db).unwrap();
             hash_content_map.insert(hash, content);
         }
 
-        let info = stat(&cnt).unwrap();
+        let info = stat(&cnt, &db).unwrap();
         assert_eq!(info.count.packs, 10);
 
         let mut hashkeys = hash_content_map
@@ -622,7 +591,7 @@ mod tests {
         hashkeys
             .push("7e76df6ac7d08a837f7212e765edd07333c8159ffa0484bc26394e7ffd898817".to_string());
 
-        let objs = extract_many(&hashkeys, &cnt).unwrap();
+        let objs = extract_many(&hashkeys, &cnt, &db).unwrap();
 
         let mut count = 0;
         for obj in objs {

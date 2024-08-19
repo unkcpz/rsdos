@@ -12,6 +12,7 @@ fn main() -> anyhow::Result<()> {
     let cnt = rsdos::Container::new(cnt_path);
     let args: Vec<String> = std::env::args().collect();
     let arg = args.get(1).unwrap();
+    let db = sled::open(cnt.packs_db())?;
 
     if args.len() > 1 {
         match &arg[..] {
@@ -28,7 +29,7 @@ fn main() -> anyhow::Result<()> {
                     let content = "test".repeat(i as usize);
                     let bstring = content.as_bytes().to_vec();
 
-                    rsdos::io_packs::insert(bstring, &cnt)?;
+                    rsdos::io_packs::insert(bstring, &cnt, &db)?;
                 }
             }
             "purge" => {
@@ -43,7 +44,7 @@ fn main() -> anyhow::Result<()> {
                         hex::encode(hashkey)
                     })
                     .collect();
-                let _ = rsdos::io_packs::extract_many(&hashkeys, &cnt)?;
+                let _ = rsdos::io_packs::extract_many(&hashkeys, &cnt, &db)?;
             }
             _ => anyhow::bail!("unknown flag `{}`, expect `purge`, `bench` or `reset`", arg),
         }

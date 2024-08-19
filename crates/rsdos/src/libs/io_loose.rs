@@ -141,13 +141,14 @@ mod tests {
     #[test]
     fn io_loose_insert_and_extract() {
         let cnt = gen_tmp_container(PACK_TARGET_SIZE, "none").lock().unwrap();
+        let db = sled::open(cnt.packs_db()).unwrap();
 
         let bstr: ByteString = b"test 0".to_vec();
         let (_, hashkey) = insert(bstr, &cnt).unwrap();
 
         // check packs has `0` and audit has only one pack
         // check content of 0 pack is `test 0`
-        let info = stat(&cnt).unwrap();
+        let info = stat(&cnt, &db).unwrap();
         assert_eq!(info.count.loose, 1);
 
         let obj = extract(&hashkey, &cnt).unwrap().unwrap();
@@ -160,6 +161,7 @@ mod tests {
     #[test]
     fn io_loose_insert_and_extract_many() {
         let cnt = gen_tmp_container(PACK_TARGET_SIZE, "none").lock().unwrap();
+        let db = sled::open(cnt.packs_db()).unwrap();
 
         let mut hash_content_map: HashMap<String, String> = HashMap::new();
         for i in 0..100 {
@@ -169,7 +171,7 @@ mod tests {
             hash_content_map.insert(hash, content);
         }
 
-        let info = stat(&cnt).unwrap();
+        let info = stat(&cnt, &db).unwrap();
         assert_eq!(info.count.loose, 100);
 
         let mut hashkeys = hash_content_map

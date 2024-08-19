@@ -22,11 +22,6 @@ const DUPLICATES: &str = "duplicates";
 const SANDBOX: &str = "sandbox";
 
 #[derive(Debug)]
-pub struct Container {
-    pub path: PathBuf,
-}
-
-#[derive(Debug)]
 pub struct ContainerInfo {
     pub location: String,
     pub id: String,
@@ -89,6 +84,10 @@ impl FromStr for Compression {
             _ => Err(Error::ParseCompressionError { s: s.to_string() }),
         }
     }
+}
+#[derive(Debug)]
+pub struct Container {
+    pub path: PathBuf,
 }
 
 impl Container {
@@ -185,7 +184,7 @@ impl Container {
             if let Some(filename) = path.file_name() {
                 let filename = filename.to_string_lossy();
                 match filename.as_ref() {
-                    LOOSE | PACKS | DUPLICATES | SANDBOX => {
+                    LOOSE | PACKS | DUPLICATES | SANDBOX | PACKS_DB => {
                         if !path.is_dir() {
                             return Err(Error::StoreComponentError {
                                 path: self.path.clone(),
@@ -194,14 +193,6 @@ impl Container {
                         }
                     }
                     CONFIG_FILE => {
-                        if !path.is_file() {
-                            return Err(Error::StoreComponentError {
-                                path: self.path.clone(),
-                                cause: "not a file".to_string(),
-                            });
-                        }
-                    }
-                    _ if filename.contains(PACKS_DB) => {
                         if !path.is_file() {
                             return Err(Error::StoreComponentError {
                                 path: self.path.clone(),
