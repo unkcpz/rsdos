@@ -193,12 +193,13 @@ where
             .filter_map(Result::ok)
             .collect::<Vec<_>>();
 
+        rows.sort_by(|a, b| {
+            a.pack_id.cmp(&b.pack_id).then_with(|| a.offset.cmp(&b.offset))
+        });
+
         std::iter::from_fn(move || {
             if let Some(pn) = rows.pop() {
                 let pack_id = pn.pack_id;
-                // XXX: I should not return Result for cnt.<subfolder>, instead better to valitate
-                // the cnt and then just return PathBuf. Then I can get rid of `unwrap` for some
-                // places.
                 let packs_path = cnt.packs();
                 let loc = packs_path.join(format!("{pack_id}"));
                 let obj = PObject::new(
