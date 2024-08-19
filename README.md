@@ -124,6 +124,10 @@ This design at the same time makes the boundary looks symmetry in turns of read 
 - When add duplicate file, if add a file that has same content, will skip the move operation. 
 - `zstd` is faster than zlib: https://github.com/facebook/zstd?tab=readme-ov-file#benchmarks
 
+### Raw benchmark run on the CLI
+
+For pack, see summary in https://github.com/unkcpz/rsdos/pull/10 
+
 ### Time scales to be noticed (2009)
 https://surana.wordpress.com/2009/01/01/numbers-everyone-should-know/
 
@@ -149,7 +153,7 @@ https://surana.wordpress.com/2009/01/01/numbers-everyone-should-know/
 - gixoxide: https://github.com/Byron/gitoxide/blob/1a979221793a63cfc092e7e0c64854f8182cfaf0/etc/discovery/odb.md?plain=1#L172 
 - using `io_uring` for heavy io in an system async way.
 
-### Why legacy-dos is slow
+### Why legacy-dos is a bit slower than `rsdos`
 
 #### Python 
 
