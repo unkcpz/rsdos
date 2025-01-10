@@ -1,6 +1,6 @@
-# rsdos
+# RSDOS
 
-An efficient (r)u(s)ty  [`(d)isk-(o)bject(s)tore`](https://github.com/aiidateam/disk-objectstore).
+An efficient (R)u(S)ty  [`(D)isk-(O)bject(S)tore`](https://github.com/aiidateam/disk-objectstore).
 
 ## Installation
 
@@ -20,7 +20,7 @@ TODO:
 
 #### Rust
 
-- `insert` and `insert_many` for insert single or many objects to container.
+- `insert` and `insert_many` for insert single or many stream objects (e.g. files) to container.
 - `extract` and `extract_many` for extract single or many objects from container.
 - `insert_many` and `extract_many` should both using iterator as input/output since the number of objects can be huge. Meanwhile using iterator helps with buffer management on rw large amount of files.
 - For the container, it should implement `insert`, `extract`, `insert_many` and `extract_many`. That requires loose has `insert_many` implemented from `insert` and be the method for the container.
@@ -32,8 +32,10 @@ TODO:
 - To make `Container` a generic type, things that implement `insert`, `extract`, `insert_many` and `extract_many` should be a Container no matter it is local or not. 
 - hashkey servers two purpose: 1. as the id of the object stored, this need to use sha256 to avoid duplicate 2. as the checksum to see if the lazy object read is valid, for this purpose can use cheap checksum.
 - For the Packed objects, `raw_size` is the uncompressed size while `size` is the compressed size occupied the packed file, this different from legacy dos which `length` is the compressed size occupied in packed file.
-- Only support one compression library, for V1 that is zlib, for V2 use zstd.
+- ~~Only support one compression library, for V1 that is zlib, for V2 use zstd.~~
+- Support zlib and zstd (default).
 - [when it is worth to compress?](https://developer.att.com/video-optimizer/docs/best-practices/text-file-compression)
+
 
 #### Py wrapper
 
@@ -47,6 +49,12 @@ When interact with container, client side (user) have no knowledge on where the 
 Therefore, when calling `insert` or `insert_many` from python wrapper it always goes to loose. 
 When calling `extract` or `extract_many` it will check loose first and then packed store to get the object(s). 
 The `pack` operation will trigger the move from loose to packed store and result into the objects are distrubuted in two places.
+
+#### Illustration
+
+The bytes passing in the container and cross python/rust boundary is demostrated.
+
+![cross boundaries](./misc/rsdos-design.svg)
 
 ### Estimate whether to compress
 - [when it is worth to compress?](https://developer.att.com/video-optimizer/docs/best-practices/text-file-compression)
@@ -155,11 +163,7 @@ https://surana.wordpress.com/2009/01/01/numbers-everyone-should-know/
 
 ### Why legacy-dos is a bit slower than `rsdos`
 
-#### Python 
-
-....
-
-#### More
+#### Misc
 
 - When read from hashkey, store the handler and meta which require allocation, and increase the cache miss.
 
