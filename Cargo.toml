@@ -1,7 +1,7 @@
 [workspace]
 members = [
   "crates/rsdos",
-  "crates/pyrsdos",
+  "python",
 ]
 default-members = [
   "crates/rsdos"

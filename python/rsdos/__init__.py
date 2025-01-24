@@ -4,6 +4,8 @@ from pathlib import Path
 from .rsdos import _Container
 from enum import Enum
 
+__all__ = ("Container",)
+
 # StreamReadBytesType = t.Union[
 #     t.BinaryIO,
 #     "PackedObjectReader",
@@ -14,6 +16,7 @@ from enum import Enum
 StreamBytesType = t.BinaryIO
 StreamReadBytesType = t.BinaryIO
 StreamSeekBytesType = t.BinaryIO
+
 
 class CompressMode(Enum):
     """Various possible behaviors when compressing.
@@ -31,12 +34,9 @@ class CompressMode(Enum):
     # Automatically determine if it's worth compressing this object or not, ideally in a relatively efficient way.
     AUTO = "auto"
 
-class Container:
 
-    def __init__(
-        self,
-        folder: t.Union[str, Path]
-    ):
+class Container:
+    def __init__(self, folder: t.Union[str, Path]):
         self.cnt = _Container(folder)
 
     def _init_db(self):
@@ -79,7 +79,6 @@ class Container:
                 else:
                     raise exc from None
 
-
     def get_object_content(self, hashkey: str) -> bytes | None:
         stream = io.BytesIO()
         try:
@@ -96,7 +95,7 @@ class Container:
         else:
             return stream.read()
 
-    def get_objects_content(        
+    def get_objects_content(
         self, hashkeys: t.List[str], skip_if_missing: bool = True
     ) -> t.Dict[str, t.Optional[bytes]]:
         d, not_found = self.get_loose_objects_content_raw_rs(hashkeys, skip_if_missing)
@@ -107,7 +106,7 @@ class Container:
             d[k] = bytes(v)
 
         return d
-        
+
     def get_loose_objects_content_raw_rs(
         self, hashkeys: t.List[str], skip_if_missing: bool = True
     ) -> t.Tuple[t.Dict[str, t.Optional[bytes]], t.List[str]]:
@@ -136,7 +135,7 @@ class Container:
         return h
 
     # XXX: I prefer name `add_objects_to_packs`
-    def add_objects_to_pack(  
+    def add_objects_to_pack(
         self,
         content_list: t.Union[t.List[bytes], t.Tuple[bytes, ...]],
         compress: bool | CompressMode = CompressMode.NO,
@@ -154,9 +153,11 @@ class Container:
                 compress_mode = CompressMode.NO
         else:
             compress_mode = compress
-        hkey_lst = [i[1] for i in self.cnt.insert_many_to_packs(content_list, compress_mode.value)]
+        hkey_lst = [
+            i[1]
+            for i in self.cnt.insert_many_to_packs(content_list, compress_mode.value)
+        ]
         return hkey_lst
-            
 
     def add_streamed_object(self, stream: StreamReadBytesType) -> str:
         _, hashkey = self.cnt.insert_to_loose(stream)
@@ -188,7 +189,9 @@ class Container:
         for first_level in Path(self.get_folder() / "loose").iterdir():
             # if not self._is_valid_loose_prefix(first_level):
             #     continue
-            for second_level in Path(self.get_folder() / "loose" / first_level).iterdir():
+            for second_level in Path(
+                self.get_folder() / "loose" / first_level
+            ).iterdir():
                 hashkey = f"{first_level}{second_level}"
                 # if not self._is_valid_hashkey(hashkey):
                 #     continue
@@ -215,4 +218,3 @@ class Container:
         else:
             compress_mode = compress
         return self.cnt.pack_all_loose(compress_mode.value)
-
