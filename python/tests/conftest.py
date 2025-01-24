@@ -13,3 +13,4 @@ def py_container(tmp_path):
     cnt = PyContainer(tmp_path)
     cnt.init_container()
     yield cnt
+    cnt.close()
