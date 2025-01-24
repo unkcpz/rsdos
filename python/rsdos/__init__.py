@@ -1,3 +1,5 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 import typing as t
 import io
 from pathlib import Path
@@ -50,7 +52,7 @@ class Container:
 
     def iter_objects_stream_loose(
         self, hashkeys: t.List[str], skip_if_missing: bool = True
-    ) -> t.Iterator[t.Tuple[str, t.Optional[StreamReadBytesType]]]:
+    ) -> Iterator[t.Tuple[str, t.Optional[StreamReadBytesType]]]:
         for hashkey in hashkeys:
             stream = io.BytesIO()
             try:
@@ -67,7 +69,7 @@ class Container:
 
     def iter_objects_stream_packs(
         self, hashkeys: t.List[str], skip_if_missing: bool = True
-    ) -> t.Iterator[t.Tuple[str, t.Optional[StreamReadBytesType]]]:
+    ) -> Iterator[t.Tuple[str, t.Optional[StreamReadBytesType]]]:
         for hashkey in hashkeys:
             stream = io.BytesIO()
             try:
@@ -80,6 +82,14 @@ class Container:
                     raise exc from None
 
     def get_object_content(self, hashkey: str) -> bytes | None:
+        with self.get_object_stream(hashkey) as fh:
+            if fh is not None:
+                return fh.read()
+            else:
+                return None
+
+    @contextmanager
+    def get_object_stream(self, hashkey: str) -> Iterator[StreamReadBytesType | None]:
         stream = io.BytesIO()
         try:
             # try fetch from loose
@@ -89,11 +99,11 @@ class Container:
                 # not found in loose, try fetch from packs
                 self._fetch_from_packs(hashkey, stream)
             except ValueError:
-                return None
+                yield None
             else:
-                return stream.read()
+                yield stream
         else:
-            return stream.read()
+            yield stream
 
     def get_objects_content(
         self, hashkeys: t.List[str], skip_if_missing: bool = True
@@ -183,7 +193,7 @@ class Container:
     def is_initialised(self) -> bool:
         return self.cnt.is_initialised
 
-    def list_all_objects(self) -> t.Iterator[str]:
+    def list_all_objects(self) -> Iterator[str]:
         """For loose it simply traverse the filename in loose store, so never will be the bottleneck
         I'll just use the python implementation. Using PyO3 to return iterator is complex."""
         for first_level in Path(self.get_folder() / "loose").iterdir():
