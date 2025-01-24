@@ -112,7 +112,7 @@ def test_packs_read_py(benchmark, tmp_path, compress_mode):
     [CompressMode.YES, CompressMode.NO],
 )
 @pytest.mark.benchmark(group="write_1_packs", min_rounds=3)
-def test_packs_write_rs_single(benchmark, tmp_path, compress_mode):
+def test_packs_write_single_rs(benchmark, tmp_path, compress_mode):
     """Add 1 objects to the container in packed form, and benchmark write and read speed."""
     cnt = RsContainer(tmp_path)
     cnt.init_container()
@@ -133,7 +133,7 @@ def test_packs_write_rs_single(benchmark, tmp_path, compress_mode):
     [CompressMode.YES, CompressMode.NO],
 )
 @pytest.mark.benchmark(group="write_1_packs", min_rounds=3)
-def test_packs_write_rs_single_1000(benchmark, tmp_path, compress_mode):
+def test_packs_write_single_1000_rs(benchmark, tmp_path, compress_mode):
     """Add 1'000 objects to the container in packed form, and benchmark write and read speed."""
     cnt = RsContainer(tmp_path)
     cnt.init_container()
