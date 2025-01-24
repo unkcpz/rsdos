@@ -26,29 +26,28 @@ def reset_packs(folder_path: Path):
 @pytest.mark.benchmark(group="pack_10")
 def test_pack_loose_10_py(benchmark, tmp_path, compress_mode, nrepeat):
     """Add 10 objects to the container in loose form, and benchmark pack_all_loose speed."""
-    cnt = PyContainer(tmp_path)
-    cnt.init_container(pack_size_target = 4 * 1024 * 1024 * 1024, compression_algorithm="zlib+1")
+    with PyContainer(tmp_path) as cnt:
+        cnt.init_container(pack_size_target = 4 * 1024 * 1024 * 1024, compression_algorithm="zlib+1")
 
-    num_files = 10
-    data_content = [(f"test {i}" * nrepeat).encode("ascii") for i in range(num_files)]
-    hashkeys = []
-    for content in data_content:
-        hashkeys.append(cnt.add_object(content))
+        num_files = 10
+        data_content = [(f"test {i}" * nrepeat).encode("ascii") for i in range(num_files)]
+        hashkeys = []
+        for content in data_content:
+            hashkeys.append(cnt.add_object(content))
 
-    def pack_all_loose():
-        cnt.pack_all_loose(compress_mode)
-        reset_packs(cnt.get_folder() / "packs")
+        def pack_all_loose():
+            cnt.pack_all_loose(compress_mode)
+            reset_packs(cnt.get_folder() / "packs")
 
-        # delete all packs.idx-*
-        for pack_file in cnt.get_folder().glob("packs.idx*"):
-            pack_file.unlink()
+            # delete all packs.idx-*
+            for pack_file in cnt.get_folder().glob("packs.idx*"):
+                pack_file.unlink()
 
-        cnt._get_session(create=True)
-        # the session is open in mem need to clean up for next run
-        cnt.close()
+            cnt._get_session(create=True)
+            # the session is open in mem need to clean up for next run
 
-    # Note that here however the OS will be using the disk caches
-    benchmark(pack_all_loose)
+        # Note that here however the OS will be using the disk caches
+        benchmark(pack_all_loose)
 
 
 @pytest.mark.parametrize(
@@ -89,15 +88,20 @@ def test_pack_loose_10_rs(benchmark, tmp_path, compress_mode, nrepeat):
     benchmark(pack_all_loose)
 
 @pytest.mark.skip(reason="legacy dos can not support such large amount of open file handlers")
-def test_pack_loose_too_many_open_files_py(benchmark, tmp_path):
-    """xfail test to demostrat that legacy dos didn't gracefully drop the file handlers."""
+def test_pack_loose_too_many_open_files_py_xfail(benchmark, tmp_path):
+    """xfail test to demostrat that legacy dos didn't gracefully drop the file handlers.
+
+    To make it work, the container mush used in the context manage so that every iter of test will close file handlers.
+    `with PyContainer(tmp_path) as cnt:`
+    """
     cnt = PyContainer(tmp_path)
-    cnt.init_container(pack_size_target = 4 * 1024, compression_algorithm="zlib+1")
+    cnt.init_container(pack_size_target = 4 * 1024 * 1024, compression_algorithm="zlib+1")
 
     compress_mode = CompressMode.NO
 
     num_files = 1000
-    data_content = [(f"test {i}" * i).encode("ascii") for i in range(num_files)]
+    nrepeat = 64
+    data_content = [("8bytes0" * nrepeat).encode("ascii") for _ in range(num_files)]
     hashkeys = []
     for content in data_content:
         hashkey = cnt.add_object(content)
@@ -112,12 +116,40 @@ def test_pack_loose_too_many_open_files_py(benchmark, tmp_path):
             pack_file.unlink()
 
         cnt._get_session(create=True)
-        # the session is open in mem need to clean up for next run
-        cnt.close()
 
 
     # Note that here however the OS will be using the disk caches
     benchmark(pack_all_loose)
+
+def test_pack_loose_too_many_open_files_py(benchmark, tmp_path):
+    """previous xfail test to demostrat that legacy dos didn't gracefully drop the file handlers.
+    """
+    with PyContainer(tmp_path) as cnt:
+        cnt.init_container(pack_size_target = 4 * 1024 * 1024, compression_algorithm="zlib+1")
+
+        compress_mode = CompressMode.NO
+
+        num_files = 1000
+        nrepeat = 5 * 1024 # 5 KiB
+        data_content = [("8bytes0" * nrepeat).encode("ascii") for _ in range(num_files)]
+        hashkeys = []
+        for content in data_content:
+            hashkey = cnt.add_object(content)
+            hashkeys.append(hashkey)
+
+        def pack_all_loose():
+            cnt.pack_all_loose(compress_mode)
+            reset_packs(cnt.get_folder() / "packs")
+
+            # delete all packs.idx-*
+            for pack_file in cnt.get_folder().glob("packs.idx*"):
+                pack_file.unlink()
+
+            cnt._get_session(create=True)
+
+
+        # Note that here however the OS will be using the disk caches
+        benchmark(pack_all_loose)
 
 def test_pack_loose_too_many_open_files_rs(benchmark, tmp_path):
     """This will work in rsdos, since:
@@ -126,12 +158,13 @@ def test_pack_loose_too_many_open_files_rs(benchmark, tmp_path):
     2. pack file only open once for a sequential write.
     """
     cnt = RsContainer(tmp_path)
-    cnt.init_container(pack_size_target = 4 * 1024, compression_algorithm="zlib+1")
+    cnt.init_container(pack_size_target = 4 * 1024 * 1024, compression_algorithm="zlib+1")
 
     compress_mode = CompressMode.NO
 
     num_files = 1000
-    data_content = [(f"test {i}" * i).encode("ascii") for i in range(num_files)]
+    nrepeat = 5 * 1024 # 5 KiB
+    data_content = [("8bytes0" * nrepeat).encode("ascii") for _ in range(num_files)]
     hashkeys = []
     for content in data_content:
         hashkeys.append(cnt.add_object(content))
@@ -160,29 +193,28 @@ def test_pack_loose_over_many_packs_py(benchmark, tmp_path, compress_mode, nrepe
     """The test to find out the delay for creating more packed files, 
     The first case will create many packed files, the second one has large target size that will have id = 0 pack open and written
     """
-    cnt = PyContainer(tmp_path)
-    cnt.init_container(pack_size_target = pack_size, compression_algorithm="zlib+1")
+    with PyContainer(tmp_path) as cnt:
+        cnt.init_container(pack_size_target = pack_size, compression_algorithm="zlib+1")
 
-    num_files = 200
-    data_content = [("8bytes0" * nrepeat).encode("ascii") for _ in range(num_files)]
-    hashkeys = []
-    for content in data_content:
-        hashkeys.append(cnt.add_object(content))
+        num_files = 200
+        data_content = [("8bytes0" * nrepeat).encode("ascii") for _ in range(num_files)]
+        hashkeys = []
+        for content in data_content:
+            hashkeys.append(cnt.add_object(content))
 
-    def pack_all_loose():
-        cnt.pack_all_loose(compress_mode)
-        reset_packs(cnt.get_folder() / "packs")
+        def pack_all_loose():
+            cnt.pack_all_loose(compress_mode)
+            reset_packs(cnt.get_folder() / "packs")
 
-        # delete all packs.idx-*
-        for pack_file in cnt.get_folder().glob("packs.idx*"):
-            pack_file.unlink()
+            # delete all packs.idx-*
+            for pack_file in cnt.get_folder().glob("packs.idx*"):
+                pack_file.unlink()
 
-        cnt._get_session(create=True)
-        # the session is open in mem need to clean up for next run
-        cnt.close()
+            cnt._get_session(create=True)
+            # the session is open in mem need to clean up for next run
 
-    # Note that here however the OS will be using the disk caches
-    benchmark(pack_all_loose)
+        # Note that here however the OS will be using the disk caches
+        benchmark(pack_all_loose)
 
 @pytest.mark.parametrize(
     "compress_mode,nrepeat,pack_size", 
