@@ -1,7 +1,9 @@
 import hashlib
 
+from rsdos import Container
 
-def test_write_single_rs(rs_container):
+
+def test_write_single(rs_container):
     """test write 1 object to container in loose form"""
     content = str("test").encode("ascii")
     expected_hashkey = hashlib.sha256(content).hexdigest()
@@ -36,7 +38,10 @@ def test_write_1000_files(rs_container):
     assert expected_hashkeys == hashkeys
 
 
-def test_count_10000(rs_container):
+def test_count_10000(tmp_path):
+    rs_container = Container(tmp_path)
+    rs_container.init_container()
+
     num_files = 10000
     data_content = [str(i).encode("ascii") for i in range(num_files)]
     for content in data_content:

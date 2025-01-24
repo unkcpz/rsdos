@@ -32,18 +32,23 @@ def test_pack_loose_10(tmp_path, compress_mode, nrepeat):
     # 400 * 8 bytes = 3200 bytes
     "compress_mode,nrepeat,pack_size", 
     [
-        (CompressMode.NO, 400, 1024), 
-        (CompressMode.NO, 400, 4 * 1024 * 1024),
+        (CompressMode.NO, 400, 's'), 
+        (CompressMode.NO, 400, 'l'),
     ])
-def test_pack_loose_over_many_packs(tmp_path, compress_mode, nrepeat, pack_size):
+def test_pack_loose_over_many_packs(tmp_path, compress_mode, nrepeat, pack_size, gen_n_bytes):
     """The test to find out the delay for creating more packed files, 
     The first case will create many packed files, the second one has large target size that will have id = 0 pack open and written
     """
+    if pack_size == 's':
+        pack_size_ = 1024 
+    elif pack_size == 'l':
+        pack_size_ = 1024 * 1024 
+
     cnt = Container(tmp_path)
-    cnt.init_container(pack_size_target = pack_size, compression_algorithm="zlib+1")
+    cnt.init_container(pack_size_target = pack_size_, compression_algorithm="zlib+1")
 
     num_files = 200
-    data_content = [("8bytes0" * nrepeat).encode("ascii") for _ in range(num_files)]
+    data_content = [(gen_n_bytes(8) * nrepeat).encode("ascii") for _ in range(num_files)]
     hashkeys = []
     for content in data_content:
         hashkeys.append(cnt.add_object(content))
@@ -56,5 +61,5 @@ def test_pack_loose_over_many_packs(tmp_path, compress_mode, nrepeat, pack_size)
     got = cnt.get_object_content(hashkeys[-1])
     assert got == data_content[-1] 
 
-    # FIXME: the number of loose not correct
-    # assert cnt.count_pack_file() > 1
+    if pack_size == 's':
+        assert cnt.count_pack_file() > 1
