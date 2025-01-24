@@ -9,7 +9,7 @@ name = "rsdos"
 crate-type = ["cdylib"]
 
 [dependencies]
-rsdos = { path = "../crates/rsdos" }
+rsdos = { path = "../rust" }
 pyo3 = { version = "0.21", features = ["extension-module", "abi3", "abi3-py39", "anyhow", "auto-initialize"] }
 sha2 = "0.10.8"
 pyo3-file = "0.8.1"

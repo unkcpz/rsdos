@@ -1,10 +1,10 @@
 [workspace]
 members = [
-  "crates/rsdos",
+  "rust",
   "python",
 ]
 default-members = [
-  "crates/rsdos"
+  "rust"
 ]
 
 resolver = "2"
