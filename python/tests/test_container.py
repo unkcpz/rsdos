@@ -2,6 +2,7 @@ from rsdos import Container
 import tempfile
 import os
 
+
 def test_initialisation(tmp_path):
     """Test that the initialisation function works as expected."""
     container = Container(tmp_path)
@@ -9,6 +10,7 @@ def test_initialisation(tmp_path):
 
     container.init_container()
     assert container.is_initialised
+
 
 def test_add_loose_from_stream(rs_container):
     """Test adding an object from a stream (from an open file, for instance)."""
@@ -26,4 +28,3 @@ def test_add_loose_from_stream(rs_container):
     assert read_content == content
 
     os.remove(temp_handle.name)
-

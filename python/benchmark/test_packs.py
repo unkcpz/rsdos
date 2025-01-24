@@ -168,7 +168,9 @@ def test_packs_write_rs(benchmark, tmp_path, compress_mode, nrepeat, gen_n_bytes
     cnt = RsContainer(tmp_path)
     cnt.init_container()
     num_files = 10
-    data_content = [(gen_n_bytes(8) * nrepeat).encode("ascii") for _ in range(num_files)]
+    data_content = [
+        (gen_n_bytes(8) * nrepeat).encode("ascii") for _ in range(num_files)
+    ]
     expected_hashkeys = [
         hashlib.sha256(content).hexdigest() for content in data_content
     ]
@@ -179,7 +181,7 @@ def test_packs_write_rs(benchmark, tmp_path, compress_mode, nrepeat, gen_n_bytes
     assert expected_hashkeys == hashkeys
 
 
-@pytest.mark.skip(reason="legacy dos fails with too many open files") 
+@pytest.mark.skip(reason="legacy dos fails with too many open files")
 @pytest.mark.parametrize(
     "compress_mode,nrepeat",
     [
@@ -198,7 +200,9 @@ def test_packs_write_py(benchmark, tmp_path, compress_mode, nrepeat, gen_n_bytes
     with PyContainer(tmp_path) as cnt:
         cnt.init_container()
         num_files = 10
-        data_content = [(gen_n_bytes(8) * nrepeat).encode("ascii") for _ in range(num_files)]
+        data_content = [
+            (gen_n_bytes(8) * nrepeat).encode("ascii") for _ in range(num_files)
+        ]
         expected_hashkeys = [
             hashlib.sha256(content).hexdigest() for content in data_content
         ]

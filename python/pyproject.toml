@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "rsdos"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
@@ -14,12 +14,17 @@ dynamic = ["version"]
 
 [project.optional-dependencies]
 tests = [
-  "disk-objectstore~=1.1",
   "pytest~=8.3",
-  "pytest-memray~=1.7",
+]
+
+bench = [
+  "disk-objectstore~=1.1",
   "pytest-benchmark~=4.0",
 ]
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
 python-source = "."
+
+[tool.uv]
+dev-dependencies = ["pip", "pytest>=8.0.2", "ruff>=0.8.0", "pre-commit>=4.0.1"]

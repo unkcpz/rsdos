@@ -1,4 +1,4 @@
-name: CI
+name: CI-rs
 on:
   pull_request:
     branches: [main]
