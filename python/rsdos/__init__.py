@@ -213,6 +213,9 @@ class Container:
     def count_objects(self) -> int:
         return self.cnt.get_n_objs()
 
+    def count_pack_file(self) -> int:
+        return self.cnt.get_count_pack_file()
+
     def pack_all_loose(
         self,
         compress: bool | CompressMode = CompressMode.NO,

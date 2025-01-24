@@ -21,6 +21,7 @@ def test_packs_read_single_rs(benchmark, tmp_path, compress_mode):
     ]
     expected_results_dict = dict(zip(expected_hashkeys, data_content))
 
+    # XXX: seems pack add can be further improved
     hashkeys = cnt.add_objects_to_pack(data_content, compress=compress_mode)
     random.shuffle(hashkeys)
     # Note that here however the OS will be using the disk caches

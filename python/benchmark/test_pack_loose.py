@@ -1,8 +1,8 @@
 import pytest
-from disk_objectstore import CompressMode, Container as PyContainer
+from disk_objectstore import Container as PyContainer
 from pathlib import Path
 import shutil
-from rsdos import Container as RsContainer
+from rsdos import CompressMode, Container as RsContainer
 
 def reset_packs(folder_path: Path):
     # Remove the folder and its contents

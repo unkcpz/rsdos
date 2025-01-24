@@ -91,14 +91,22 @@ pub fn stat(cnt: &Container) -> anyhow::Result<ContainerInfo> {
         id: config.container_id.to_string(),
         compression_algorithm: config.compression_algorithm,
         count: CountInfo {
+            // number of loose objs
             loose: loose_files_count,
+            // number of pack objs
+            // FIXME: rename -> pack
             packs: packs_count,
+            // number of pack files
             packs_file: packs_file_count,
         },
         size: SizeInfo {
+            // total size of all loose objs
             loose: loose_files_size,
+            // total size of all pack objs
             packs: packs_size,
+            // total size of all pack files
             packs_file: packs_file_size,
+            // size of pack index db file
             packs_db: packs_db_size,
         },
     })

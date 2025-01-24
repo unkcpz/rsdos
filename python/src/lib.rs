@@ -180,9 +180,20 @@ impl PyContainer {
         Ok(info.size.loose)
     }
 
+    // FIXME: rename count_loose
     fn get_n_objs(&self) -> PyResult<u64> {
         let info = rsdos::cli::stat(&self.inner)?;
         Ok(info.count.loose)
+    }
+
+    fn get_count_pack(&self) -> PyResult<u64> {
+        let info = rsdos::cli::stat(&self.inner)?;
+        Ok(info.count.packs)
+    }
+
+    fn get_count_pack_file(&self) -> PyResult<u64> {
+        let info = rsdos::cli::stat(&self.inner)?;
+        Ok(info.count.packs_file)
     }
 }
 
