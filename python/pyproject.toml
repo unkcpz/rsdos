@@ -16,6 +16,7 @@ dynamic = ["version"]
 tests = [
   "disk-objectstore~=1.1",
   "pytest~=8.3",
+  "pytest-memray~=1.7",
   "pytest-benchmark~=4.0",
 ]
 
