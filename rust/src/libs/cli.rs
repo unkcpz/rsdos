@@ -119,14 +119,14 @@ mod tests {
 
     use crate::{
         io_packs,
-        test_utils::{gen_tmp_container, PACK_TARGET_SIZE},
+        test_utils::{new_container, PACK_TARGET_SIZE},
     };
 
     use super::*;
 
     #[test]
     fn cli_add_ten_diff_objs_to_loose() {
-        let cnt = gen_tmp_container(PACK_TARGET_SIZE, "none").lock().unwrap();
+        let (_tmp_dir, cnt) = new_container(PACK_TARGET_SIZE, "none");
 
         // add 10 different files to loose
         for i in 0..10 {
@@ -148,7 +148,7 @@ mod tests {
     /// regression check: get the obj content by hash and compute hash is the same
     #[test]
     fn cli_add_ten_same_objs_to_loose() {
-        let cnt = gen_tmp_container(PACK_TARGET_SIZE, "none").lock().unwrap();
+        let (_tmp_dir, cnt) = new_container(PACK_TARGET_SIZE, "none");
 
         // add 10 different files to loose
         for _i in 0..10 {
@@ -168,7 +168,7 @@ mod tests {
 
     #[test]
     fn cli_add_ten_diff_objs_to_packs() -> anyhow::Result<()> {
-        let cnt = gen_tmp_container(PACK_TARGET_SIZE, "none").lock().unwrap();
+        let (_tmp_dir, cnt) = new_container(PACK_TARGET_SIZE, "none");
 
         let orig_objs: HashMap<String, String> = (0..10)
             .map(|i| {
@@ -203,7 +203,7 @@ mod tests {
 
     #[test]
     fn cli_add_ten_same_objs_to_packs() -> anyhow::Result<()> {
-        let cnt = gen_tmp_container(PACK_TARGET_SIZE, "none").lock().unwrap();
+        let (_tmp_dir, cnt) = new_container(PACK_TARGET_SIZE, "none");
 
         // insert 10 identical object to packs
         let orig_objs: HashMap<String, String> = (0..10)

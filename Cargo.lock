@@ -936,7 +936,6 @@ dependencies = [
  "hex-literal",
  "human_bytes",
  "indicatif",
- "once_cell",
  "rand",
  "ring",
  "rstest",
