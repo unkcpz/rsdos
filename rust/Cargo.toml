@@ -9,7 +9,7 @@ rust-version.workspace = true
 [dependencies]
 anyhow = "1.0.86"
 bytes = "1.9.0"
-clap = { version = "4.5.9", features = ["derive"] }
+clap = { version = "4.5.27", features = ["derive"] }
 fallible-streaming-iterator = "0.1.9"
 flate2 = { version = "1.0.31", features = ["zlib-ng"] }
 hex = "0.4.3"
