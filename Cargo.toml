@@ -11,7 +11,7 @@ resolver = "2"
 
 [workspace.package]
 authors = ["Jusong Yu <jusong.d.yu@gmail.com>"]
-rust-version = "1.76.0"
+rust-version = "1.78.0"
 edition = "2021"
 
 [profile.release]
