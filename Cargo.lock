@@ -587,6 +587,7 @@ version = "0.30.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6b694a822684ddb75df4d657029161431bcb4a85c1856952f845b76912bc6fec"
 dependencies = [
+ "cc",
  "pkg-config",
  "vcpkg",
 ]
@@ -820,7 +821,6 @@ dependencies = [
  "pyo3",
  "pyo3-file",
  "rsdos",
- "rusqlite",
  "serde",
  "sha2",
 ]
