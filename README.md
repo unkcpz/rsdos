@@ -2,6 +2,8 @@
 
 An efficient (R)u(S)ty  [`(D)isk-(O)bject(S)tore`](https://github.com/aiidateam/disk-objectstore).
 
+MSRV: 1.78
+
 ## Installation
 
 - [ ] cargo binstall

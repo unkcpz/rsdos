@@ -64,12 +64,13 @@ mod tests {
 
     use crate::io_loose::insert as loose_insert;
     use crate::io_packs::extract as packs_extract;
-    use crate::{stat, test_utils::gen_tmp_container};
+    use crate::stat;
+    use crate::test_utils::new_container;
     use std::collections::HashMap;
 
     #[test]
     fn pack_loose_default() {
-        let cnt = gen_tmp_container(1024, "none").lock().unwrap();
+        let (_tmp_dir, cnt) = new_container(1024, "none");
         let n = 200;
 
         // add 10 obj to loose
@@ -99,7 +100,7 @@ mod tests {
 
     #[test]
     fn pack_loose_default_compress() {
-        let cnt = gen_tmp_container(1024, "zlib:+1").lock().unwrap();
+        let (_tmp_dir, cnt) = new_container(1024, "zlib:+1");
 
         // add 10 obj to loose
         let mut hash_content_map: HashMap<String, String> = HashMap::new();

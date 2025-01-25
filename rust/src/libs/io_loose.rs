@@ -133,14 +133,14 @@ mod tests {
     use crate::{
         io::ByteString,
         stat,
-        test_utils::{gen_tmp_container, PACK_TARGET_SIZE},
+        test_utils::{new_container, PACK_TARGET_SIZE},
     };
 
     use super::*;
 
     #[test]
     fn io_loose_insert_and_extract() {
-        let cnt = gen_tmp_container(PACK_TARGET_SIZE, "none").lock().unwrap();
+        let (_tmp_dir, cnt) = new_container(PACK_TARGET_SIZE, "none");
 
         let bstr: ByteString = b"test 0".to_vec();
         let (_, hashkey) = insert(bstr, &cnt).unwrap();
@@ -159,7 +159,7 @@ mod tests {
 
     #[test]
     fn io_loose_insert_and_extract_many() {
-        let cnt = gen_tmp_container(PACK_TARGET_SIZE, "none").lock().unwrap();
+        let (_tmp_dir, cnt) = new_container(PACK_TARGET_SIZE, "none");
 
         let mut hash_content_map: HashMap<String, String> = HashMap::new();
         for i in 0..100 {

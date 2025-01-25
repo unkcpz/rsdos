@@ -405,14 +405,14 @@ mod tests {
     use crate::{
         io::ByteString,
         stat,
-        test_utils::{gen_tmp_container, PACK_TARGET_SIZE},
+        test_utils::{new_container, PACK_TARGET_SIZE},
     };
 
     use super::*;
 
     #[test]
     fn io_packs_insert_0_when_empty() {
-        let cnt = gen_tmp_container(PACK_TARGET_SIZE, "none").lock().unwrap();
+        let (_tmp_dir, cnt) = new_container(PACK_TARGET_SIZE, "none");
 
         let bstr: ByteString = b"test 0".to_vec();
         let (_, hash) = insert(bstr, &cnt).unwrap();
@@ -449,7 +449,7 @@ mod tests {
 
     #[test]
     fn io_packs_insert_1_when_1_exist() {
-        let cnt = gen_tmp_container(PACK_TARGET_SIZE, "none").lock().unwrap();
+        let (_tmp_dir, cnt) = new_container(PACK_TARGET_SIZE, "none");
 
         // create fack placeholder empty pack 0 and pack 1
         // it is expected that content will be added to pack1
@@ -475,7 +475,7 @@ mod tests {
 
     #[test]
     fn io_packs_insert_2_when_1_reach_limit() {
-        let cnt = gen_tmp_container(PACK_TARGET_SIZE, "none").lock().unwrap();
+        let (_tmp_dir, cnt) = new_container(PACK_TARGET_SIZE, "none");
         let pack_target_size = cnt.config().unwrap().pack_size_target;
 
         // snuck limit size of bytes into pack 1 and new bytes will go to pack 2
@@ -510,7 +510,7 @@ mod tests {
 
     #[test]
     fn io_packs_extract_from_any_single() {
-        let cnt = gen_tmp_container(6400, "none").lock().unwrap();
+        let (_tmp_dir, cnt) = new_container(6400, "none");
         let n = 100;
 
         let mut hash_content_map: HashMap<String, String> = HashMap::new();
@@ -535,7 +535,7 @@ mod tests {
 
     #[test]
     fn io_packs_inselt_many() {
-        let cnt = gen_tmp_container(64, "zlib:+1").lock().unwrap();
+        let (_tmp_dir, cnt) = new_container(64, "zlib:+1");
 
         let mut hash_content_map: HashMap<String, String> = HashMap::new();
         for i in 0..100 {
@@ -555,7 +555,7 @@ mod tests {
     #[case("zlib+1")]
     #[case("zlib:+9")]
     fn io_packs_extract_many(#[case] algo: &str) {
-        let cnt = gen_tmp_container(64, algo).lock().unwrap();
+        let (_tmp_dir, cnt) = new_container(64, algo);
 
         let mut hash_content_map: HashMap<String, String> = HashMap::new();
         for i in 0..100 {
@@ -598,7 +598,7 @@ mod tests {
     #[case("zlib:+9")]
     /// Test if the content size is larger than the copy chunk size (64KiB)
     fn io_packs_extract_many_large_content(#[case] algo: &str) {
-        let cnt = gen_tmp_container(64 * 1024 * 1024, algo).lock().unwrap();
+        let (_tmp_dir, cnt) = new_container(64 *1024*1024, algo);
 
         let mut hash_content_map: HashMap<String, String> = HashMap::new();
         for i in 0..10 {

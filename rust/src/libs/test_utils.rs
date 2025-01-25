@@ -1,23 +1,18 @@
-use std::sync::Mutex;
-
-use once_cell::sync::OnceCell;
-use tempfile::tempdir;
+use tempfile::{tempdir, TempDir};
 
 use crate::{Config, Container};
 
 pub const PACK_TARGET_SIZE: u64 = 4 * 1024 * 1024;
 
-pub fn gen_tmp_container(pack_target_size: u64, compression: &str) -> &'static Mutex<Container> {
-    static TMP_CONTAINER: OnceCell<Mutex<Container>> = OnceCell::new();
-    TMP_CONTAINER.get_or_init(|| {
-        let cnt = tempdir().unwrap();
-        let cnt_path = cnt.into_path();
+pub fn new_container(pack_target_size: u64, compression: &str) -> (TempDir, Container) {
+    let tmp_dir = tempdir().expect("Falied to create temp dir");
+    let config = Config::new(pack_target_size, compression);
 
-        let config = Config::new(pack_target_size, compression);
+    dbg!(tmp_dir.path());
+    let cnt = Container::new(tmp_dir.path());
+    cnt.initialize(&config)
+        .expect("fail to initialize container");
 
-        let cnt = Container::new(cnt_path);
-        cnt.initialize(&config)
-            .expect("fail to initialize container");
-        Mutex::new(cnt)
-    })
+    // return ownership so the resource not leak
+    (tmp_dir, cnt)
 }

@@ -1,0 +1,35 @@
+name: CI-rs
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+env:
+  CARGO_TERM_COLOR: always
+jobs:
+  test:
+    name: testing-${{ matrix.toolchain }}-${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain:
+          - stable
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+        include:
+          - toolchain: 1.78.0 # test MSRV
+            os: ubuntu-latest
+          - toolchain: nightly
+            os: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+      - name: Install toolchain
+        run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
+      - name: Log active toolchain
+        run: rustup show
+      - name: Run cargo test in release mode
+        run: cargo test --all --release

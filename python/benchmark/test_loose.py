@@ -2,6 +2,7 @@ import pytest
 import hashlib
 import random
 
+
 @pytest.mark.benchmark(group="read_single")
 def test_loose_read_single_rs(benchmark, rs_container):
     """Add 1 objects to the container in loose form, and benchmark write and read speed."""
@@ -12,6 +13,7 @@ def test_loose_read_single_rs(benchmark, rs_container):
     result = benchmark(rs_container.get_object_content, hashkey)
 
     assert result == content
+
 
 @pytest.mark.benchmark(group="read_single")
 def test_loose_read_single_py(benchmark, py_container):
@@ -24,10 +26,11 @@ def test_loose_read_single_py(benchmark, py_container):
 
     assert result == content
 
+
 @pytest.mark.benchmark(group="write_single", min_rounds=3)
 def test_loose_write_single_rs(rs_container, benchmark):
     """Add 1 objects to the container in packed form, and benchmark write and read speed."""
-    content = str('test').encode("ascii")
+    content = str("test").encode("ascii")
     expected_hashkey = hashlib.sha256(content).hexdigest()
 
     def write_loose(rs_container, content):
@@ -37,10 +40,11 @@ def test_loose_write_single_rs(rs_container, benchmark):
 
     assert hashkey == expected_hashkey
 
+
 @pytest.mark.benchmark(group="write_single", min_rounds=3)
 def test_loose_write_single_py(py_container, benchmark):
     """Add 1 objects to the container in packed form, and benchmark write and read speed."""
-    content = str('test').encode("ascii")
+    content = str("test").encode("ascii")
     expected_hashkey = hashlib.sha256(content).hexdigest()
 
     def write_loose(py_container, content):
@@ -49,6 +53,7 @@ def test_loose_write_single_py(py_container, benchmark):
     hashkey = benchmark(write_loose, py_container, content)
 
     assert hashkey == expected_hashkey
+
 
 @pytest.mark.benchmark(group="read_1000")
 def test_loose_read_rs(benchmark, rs_container):
@@ -66,6 +71,7 @@ def test_loose_read_rs(benchmark, rs_container):
 
     assert results == expected_results
 
+
 @pytest.mark.benchmark(group="read_1000")
 def test_loose_read_py(benchmark, py_container):
     """Add 1'000 objects to the container in loose form, and benchmark write and read speed."""
@@ -80,6 +86,7 @@ def test_loose_read_py(benchmark, py_container):
     results = benchmark(py_container.get_objects_content, hashkeys)
 
     assert results == expected_results
+
 
 @pytest.mark.benchmark(group="write_1000", min_rounds=3)
 def test_loose_write_rs(rs_container, benchmark):
@@ -101,6 +108,7 @@ def test_loose_write_rs(rs_container, benchmark):
     assert len(hashkeys) == len(data_content)
     assert expected_hashkeys == hashkeys
 
+
 @pytest.mark.benchmark(group="write_1000", min_rounds=3)
 def test_loose_write_py(py_container, benchmark):
     """Add 1'000 objects to the container in packed form, and benchmark write and read speed."""
@@ -121,6 +129,7 @@ def test_loose_write_py(py_container, benchmark):
     assert len(hashkeys) == len(data_content)
     assert expected_hashkeys == hashkeys
 
+
 @pytest.mark.benchmark(group="count_10_000", min_rounds=3)
 def test_count_10000_py(py_container, benchmark):
     num_files = 10000
@@ -131,6 +140,7 @@ def test_count_10000_py(py_container, benchmark):
     n_objs = benchmark(py_container.count_objects)
 
     assert n_objs.loose == num_files
+
 
 @pytest.mark.benchmark(group="count_10_000", min_rounds=3)
 def test_count_10000_rs(rs_container, benchmark):
@@ -143,6 +153,7 @@ def test_count_10000_rs(rs_container, benchmark):
 
     assert n_objs == num_files
 
+
 @pytest.mark.benchmark(group="total_size_10_000", min_rounds=3)
 def test_get_total_size_10000_py(py_container, benchmark):
     num_files = 10000
@@ -154,6 +165,7 @@ def test_get_total_size_10000_py(py_container, benchmark):
 
     print(total_size)
 
+
 @pytest.mark.benchmark(group="total_size_10_000", min_rounds=3)
 def test_get_total_size_10000_rs(rs_container, benchmark):
     num_files = 10000
@@ -164,4 +176,3 @@ def test_get_total_size_10000_rs(rs_container, benchmark):
     total_size = benchmark(rs_container.get_total_size)
 
     print(total_size)
-

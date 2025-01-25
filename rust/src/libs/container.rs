@@ -278,20 +278,20 @@ pub fn traverse_packs(cnt: &Container) -> Result<impl Iterator<Item = PathBuf>, 
 mod tests {
     use tempfile::tempdir;
 
-    use crate::test_utils::{gen_tmp_container, PACK_TARGET_SIZE};
+    use crate::test_utils::{new_container, PACK_TARGET_SIZE};
 
     use super::*;
 
     #[test]
     fn default_init() {
-        let cnt = gen_tmp_container(PACK_TARGET_SIZE, "none").lock().unwrap();
+        let (_tmp_dir, cnt) = new_container(PACK_TARGET_SIZE, "none");
 
         assert!(!Dir(&cnt.path).is_empty().unwrap());
     }
 
     #[test]
     fn init_in_inited_folder() {
-        let cnt = gen_tmp_container(PACK_TARGET_SIZE, "none").lock().unwrap();
+        let (_tmp_dir, cnt) = new_container(PACK_TARGET_SIZE, "none");
 
         let err = cnt
             .initialize(&Config::new(4 * 1024 * 1024, "none"))
