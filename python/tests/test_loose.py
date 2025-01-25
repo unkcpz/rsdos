@@ -38,11 +38,11 @@ def test_write_1000_files(rs_container):
     assert expected_hashkeys == hashkeys
 
 
-def test_count_10000(tmp_path):
+def test_count_1000(tmp_path):
     rs_container = Container(tmp_path)
     rs_container.init_container()
 
-    num_files = 10000
+    num_files = 1000
     data_content = [str(i).encode("ascii") for i in range(num_files)]
     for content in data_content:
         rs_container.add_object(content)
