@@ -34,6 +34,6 @@ path = "src/lib.rs"
 
 [dev-dependencies]
 rand = "0.8.5"
-rstest = "0.22.0"
+rstest = "0.24.0"
 
 
