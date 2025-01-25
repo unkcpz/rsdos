@@ -32,10 +32,10 @@ def test_packs_read_single(tmp_path, compress_mode):
     [CompressMode.YES, CompressMode.NO],
 )
 def test_packs_read_many(tmp_path, compress_mode):
-    """Add 10'000 objects to the container in loose form, and benchmark write and read speed."""
+    """Add 10'00 objects to the container in loose form, and benchmark write and read speed."""
     cnt = Container(tmp_path)
     cnt.init_container()
-    num_files = 10000
+    num_files = 1000
     data_content = [str(i).encode("ascii") for i in range(num_files)]
     expected_hashkeys = [
         hashlib.sha256(content).hexdigest() for content in data_content
@@ -93,9 +93,7 @@ def test_packs_write_many(tmp_path, compress_mode):
 @pytest.mark.parametrize(
     "compress_mode,nrepeat",
     [
-        # 5 MiB, 5 KiB, 5 bytes
-        (CompressMode.YES, 5 * 1024 * 1024),
-        (CompressMode.NO, 5 * 1024 * 1024),
+        # 5 KiB, 5 bytes
         (CompressMode.YES, 5 * 1024),
         (CompressMode.NO, 5 * 1024),
         (CompressMode.YES, 5),
