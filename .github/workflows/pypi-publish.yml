@@ -36,12 +36,24 @@ jobs:
           python-version: 3.12
       - name: Build wheels
         uses: PyO3/maturin-action@v1
+        if: ${{ matrix.platform.target != 'aarch64' }}
         with:
           working-directory: python
           target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter
           sccache: 'true'
           manylinux: auto
+
+      - name: Build GNU Linux wheels
+        uses: PyO3/maturin-action@v1
+        # One of deps, "ring", needs a newer sysroot than what "manylinux: auto" provides.
+        if: ${{ matrix.platform.target == 'aarch64' }}
+        with:
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist --find-interpreter
+          sccache: 'true'
+          manylinux: 2_28
+
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
