@@ -22,6 +22,9 @@ bench = [
   "pytest-benchmark~=4.0",
 ]
 
+[project.scripts]
+rsdos = "rsdos:run_cli"
+
 [tool.maturin]
 features = ["pyo3/extension-module"]
 python-source = "."

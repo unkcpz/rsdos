@@ -5,7 +5,7 @@ use std::{
     str::FromStr,
 };
 
-use pyo3::{exceptions::PyValueError, prelude::*, types::PyBytes};
+use pyo3::{exceptions::{PyRuntimeError, PyValueError}, prelude::*, types::PyBytes};
 use pyo3_file::PyFileLikeObject;
 use rsdos::{
     container::{Compression, PACKS_DB},
@@ -253,10 +253,22 @@ impl ReaderMaker for Stream {
     }
 }
 
+#[pyfunction]
+// TODO: remove after https://github.com/PyO3/maturin/issues/368 is resolved
+fn run_cli(_py: Python) -> PyResult<()> {
+    let args: Vec<_> = std::env::args_os().skip(1).collect();
+    match ::rsdos::cli::run_cli(&args) {
+        Ok(()) => Ok(()),
+        Err(err) => Err(PyRuntimeError::new_err(format!("{}", err))),
+    }
+}
+
 /// A Python module implemented in Rust.
 #[pymodule]
 #[pyo3(name = "rsdos")]
 fn pyrsdos(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyContainer>()?;
+    m.add_function(wrap_pyfunction!(run_cli, m)?)?;
     Ok(())
 }
+
