@@ -1,7 +1,21 @@
 # RSDOS
 
-An efficient, **(R)u(S)ty** [**(D)isk-(O)bject(S)tore**](https://github.com/aiidateam/disk-objectstore).
+[![rust-test](https://img.shields.io/github/actions/workflow/status/unkcpz/rsdos/ci-rust.yml?label=rust-test)](https://github.com/unkcpz/rsdos/actions/workflows/ci-rust.yml)
+[![python-test](https://img.shields.io/github/actions/workflow/status/unkcpz/rsdos/ci-python.yml?label=python-test)](https://github.com/unkcpz/rsdos/actions/workflows/ci-python.yml)
 
+RSDOS - ([R]u[S]ty [D]isk-[O]bject[S]tore), is a **fast**, **server-less**, **rust-native** disk object store that is efficiency and reliability for data file management. 
+
+It handles huge datasets without breaking a sweat—whether if you’re juggling thousands of tiny files or streaming multi-gigabyte blobs. 
+It’s **not** designed as a backup solution, but rather for storing millions of files in a compact and manageable way.
+
+It packs data intelligently to maximize disk usage, deduplicates content via SHA-256 hashing.
+The tool appling on-the-fly compression (`zstd` as default or `zlib`) whenever it’s beneficial—no manual tuning required. 
+I keep I/O straightforward with streaming-based insert and extract methods so you don’t flood your RAM when dealing with large files. 
+
+Thanks to Rust’s memory safety guarantees, RSDOS delivers great performance without the usual headaches or subtle bugs.
+If you’re integrating with Python, that’s covered too through pyo3 bindings.
+
+More design details can be found at [**design notes**](https://github.com/unkcpz/rsdos/blob/main/Design.md)
 
 ## Installation
 
@@ -97,7 +111,126 @@ Planned installation methods include:
 
 ## Usage
 
-*TODO: Provide usage examples and CLI commands.*
+### CLI tool
+
+Manage your large file datasets through CLI:
+
+- Initialize a new container in the current directory
+
+```bash
+rsdos init --pack-size=512 --compression=zstd
+# [info] Container initialized at ./container
+```
+
+- Add files as loose objects
+
+```bash
+rsdos add-files --to loose ./mydata1.txt ./mydata2.bin
+# abc123... - mydata1.txt: 1.2 MB
+# def456... - mydata2.bin: 3.4 MB
+```
+
+- Pack all loose objects for efficient storage
+
+```bash
+rsdos optimize pack
+# [info] Packed 2 loose objects into pack file #1
+```
+
+- Display container status
+
+```bash
+rsdos status
+# [container]
+# Location = ./container
+# Id = 0123456789abcdef
+# ZipAlgo = zstd
+#
+# [container.count]
+# Loose = 0
+# Packs = 1
+# Pack Files = 1
+#
+# [container.size]
+# Loose = 0 B
+# Packs = 4.6 MB
+# Packs Files = 4.6 MB
+```
+
+### Python binding
+
+Here’s a quick-start guide for the Python API, showcasing core operations:
+
+```python
+from rsdos import Container, CompressMode
+
+# 1. Create a new container (or open an existing one) at a specified path:
+cnt = Container("/path/to/container")
+
+# 2. Initialize the container with desired settings
+cnt.init_container(
+    clear=False,
+    pack_size_target=4 * 1024 * 1024 * 1024,  # 4 GB pack size target
+    loose_prefix_len=2,
+    hash_type="sha256",
+    compression_algorithm="zlib+1",  # zlib with level +1
+)
+
+# 3. Add objects in loose storage
+num_files = 10
+content_list = [b"ExampleData" + str(i).encode("utf-8") for i in range(num_files)]
+hashkeys = []
+for content in content_list:
+    hkey = cnt.add_object(content)
+    hashkeys.append(hkey)
+
+# 4. Pack all loose objects for optimal storage
+cnt.pack_all_loose(CompressMode.YES)
+
+# 5. Retrieve the content of the first file
+retrieved_data = cnt.get_object_content(hashkeys[0])
+print("Retrieved:", retrieved_data)
+```
+
+#### Additional Tips
+
+- Heuristics: RSDOS automatically decides whether to compress data based on size and content type (e.g., text vs. binary). You can override this with the compress parameter.
+- Large Repositories: For very large sets of files, consider batch insertion (add_objects_to_pack) and periodic calls to pack_all_loose for best performance.
+- Streaming Approach: When handling files that exceed available memory, always use the streaming methods (add_streamed_object, get_object_stream).
+
+Batch Insertion
+
+```python
+files_data = [b"file1", b"file2", b"file3"]
+hashkeys = cnt.add_objects_to_pack(
+    content_list=files_data,
+    compress=True
+)
+print("Inserted files:", hashkeys)
+```
+
+Streaming to and from Files
+
+```python
+import io
+
+# Write from a file
+with open("large_file.bin", "rb") as infile:
+    stream_hash = cnt.add_streamed_object(infile)
+    print("Stored large file, hash:", stream_hash)
+
+# Read back into a file-like object
+with cnt.get_object_stream(stream_hash) as instream:
+    if instream:
+        with open("restored_file.bin", "wb") as outfile:
+            outfile.write(instream.read())
+    else:
+        print("Object not found in container.")
+```
+
+## Disclaimer
+
+- RSDOS is heavily inspired by aiidateam/disk-objectstore, this reimplementation aims to explore alternative design and performance optimizations.
 
 ## Progress
 
