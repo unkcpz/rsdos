@@ -3,10 +3,10 @@ from contextlib import contextmanager
 import typing as t
 import io
 from pathlib import Path
-from .rsdos import _Container
+from .rsdos import _Container, run_cli
 from enum import Enum
 
-__all__ = ("Container",)
+__all__ = ("Container", "run_cli")
 
 # StreamReadBytesType = t.Union[
 #     t.BinaryIO,
