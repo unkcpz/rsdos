@@ -31,8 +31,41 @@ pub fn create(db: &PathBuf) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Counting number of packed objects and ``total_size`` if they were loose objects
-pub fn stats(db: &PathBuf) -> anyhow::Result<(u64, u64)> {
+pub fn print_table(db: &PathBuf) -> anyhow::Result<()> {
+    // Open the database connection
+    let conn = Connection::open(db)
+        .with_context(|| format!("Open db {} for printing", db.to_string_lossy()))?;
+    
+    // Query to fetch all rows from the table
+    let mut stmt = conn.prepare("SELECT id, hashkey, compressed, size, offset, length, pack_id FROM db_object")?;
+    let rows = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, i64>(0)?,   // id
+            row.get::<_, String>(1)?, // hashkey
+            row.get::<_, bool>(2)?,   // compressed
+            row.get::<_, i64>(3)?,   // size
+            row.get::<_, i64>(4)?,   // offset
+            row.get::<_, i64>(5)?,   // length
+            row.get::<_, i64>(6)?,   // pack_id
+        ))
+    })?;
+
+    // Print the rows
+    println!("id | hashkey | compressed | size | offset | length | pack_id");
+    println!("-----------------------------------------------------------");
+    for row in rows {
+        let (id, hashkey, compressed, size, offset, length, pack_id) = row?;
+        println!(
+            "{} | {} | {} | {} | {} | {} | {}",
+            id, hashkey, compressed, size, offset, length, pack_id
+        );
+    }
+    Ok(())
+}
+
+/// Counting number of packed objects and get ``total_size`` of their raw objects (size when not
+/// compressed).
+pub fn stat(db: &PathBuf) -> anyhow::Result<(u64, u64)> {
     let conn = Connection::open(db)
         .with_context(|| format!("Open db {} for auditing", db.to_string_lossy()))?;
     let mut stmt = conn.prepare("SELECT size FROM db_object")?;
