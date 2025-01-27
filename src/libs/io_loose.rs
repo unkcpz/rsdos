@@ -74,7 +74,7 @@ where
     // have to do the pre-allocate with specific chunk size.
     // NOTE: this chunk_size is the upbound of the buf, which in order to control the size of
     // memory usage when coping large file. 512 KiB is way larger then the default buffer size in rust
-    // (4KiB). Large buffer may increase change of loosing data.
+    // (4KiB). Large buffer may increase chance of loosing data.
     let chunk_size = 524_288; // 512 KiB TODO: make it configurable??
                               //
     let mut stream = source.make_reader()?;
