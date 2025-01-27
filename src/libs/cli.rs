@@ -22,7 +22,7 @@ use std::{env, fmt::Debug};
 
 use std::io::{self, Write};
 
-pub const DEFAULT_COMPRESSION_ALGORITHM: &str = "zlib:+1";
+pub const DEFAULT_COMPRESSION_ALGORITHM: &str = "zstd:-1";
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -66,8 +66,7 @@ enum Commands {
         pack_size_gb: u64,
 
         /// Compression algorithm none for not compressing data or
-        /// (format: <zalgo>:<level>, such as: zlib:+1 or zstd:-2)
-        #[arg(short, long, default_value = "zstd:+1", value_name = "COMPRESSION")]
+        #[arg(short, long, default_value = DEFAULT_COMPRESSION_ALGORITHM, value_name = "COMPRESSION")]
         compression: String,
     },
 
@@ -184,16 +183,21 @@ pub fn add_file(
     let stat = fs::metadata(file).with_context(|| format!("stat {}", file.display()))?;
     let expected_size = stat.len();
 
-    let (bytes_streamd, hash_hex) = match to {
-        StoreType::Loose | StoreType::Auto => loose_insert(file.clone(), cnt)?,
+    let (bytes_read, _bytes_write, hash_hex) = match to {
+        StoreType::Loose | StoreType::Auto => {
+            let (b_r, hash_hex) = loose_insert(file.clone(), cnt)?;
+            (b_r, b_r, hash_hex)
+        },
+        // TODO: for single pack insert, if run twice it will insert duplicate entries
+        // Should write to sandbox first as loose and then to pack
         StoreType::Packs => packs_insert(file.clone(), cnt)?,
     };
 
     anyhow::ensure!(
-        bytes_streamd == expected_size,
+        bytes_read == expected_size,
         format!(
             "bytes streamed: {}, bytes source: {}",
-            bytes_streamd, expected_size
+            bytes_read, expected_size
         )
     );
 
@@ -285,7 +289,7 @@ pub fn run_cli(args: &[OsString]) -> anyhow::Result<()> {
                 create_dir(&cnt_path)?;
             }
 
-            let config = Config::new(pack_size_gb * 1024 * 1024, &compression);
+            let config = Config::new(pack_size_gb * 1024 * 1024 * 1024, &compression);
             let cnt = Container::new(&cnt_path);
             cnt.initialize(&config).with_context(|| {
                 format!("unable to initialize container at {}", cnt.path.display())
@@ -309,15 +313,15 @@ pub fn run_cli(args: &[OsString]) -> anyhow::Result<()> {
                         + &format!("ZipAlgo = {}\n", info.compression_algorithm)
                         // count
                         + "\n[container.count]\n"
-                        + &format!("Loose = {}\n", info.count.loose)
-                        + &format!("Packes = {}\n", info.count.packs)
+                        + &format!("Loose objects = {}\n", info.count.loose)
+                        + &format!("Pack objects = {}\n", info.count.packs)
                         + &format!("Pack Files = {}\n", info.count.packs_file)
                         // size
                         + "\n[container.size]\n"
-                        + &format!("Loose = {}\n", human_bytes(info.size.loose as f64))
-                        + &format!("Packs = {}\n", human_bytes(info.size.packs as f64))
-                        + &format!("Packs Files = {}\n", human_bytes(info.size.packs_file as f64))
-                        + &format!("Packs DB = {}\n", human_bytes(info.size.packs_db as f64));
+                        + &format!("Loose objects (raw) = {}\n", human_bytes(info.size.loose as f64))
+                        + &format!("Pack objects (raw) = {}\n", human_bytes(info.size.packs as f64))
+                        + &format!("Pack Files = {}\n", human_bytes(info.size.packs_file as f64))
+                        + &format!("Pack DB file = {}\n", human_bytes(info.size.packs_db as f64));
 
             io::stdout().write_all(state.as_bytes())?;
         }
@@ -391,6 +395,7 @@ pub fn run_cli(args: &[OsString]) -> anyhow::Result<()> {
                     let compression = if no_compress {
                         Compression::from_str("none")?
                     } else {
+                        // FIXME: this should read from config file not default
                         Compression::from_str(DEFAULT_COMPRESSION_ALGORITHM)?
                     };
 

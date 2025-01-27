@@ -164,7 +164,7 @@ class Container:
         else:
             compress_mode = compress
         hkey_lst = [
-            i[1]
+            i[2]
             for i in self.cnt.insert_many_to_packs(content_list, compress_mode.value)
         ]
         return hkey_lst
@@ -175,7 +175,7 @@ class Container:
         return hashkey
 
     def add_streamed_object_to_packs(self, stream: StreamReadBytesType) -> str:
-        _, hashkey = self.cnt.insert_to_packs(stream)
+        _, _, hashkey = self.cnt.insert_to_packs(stream)
 
         return hashkey
 
