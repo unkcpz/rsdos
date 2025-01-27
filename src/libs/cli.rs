@@ -11,7 +11,7 @@ use crate::io_packs::insert as packs_insert;
 use crate::Error;
 
 use crate::config::Config;
-use crate::db::{self};
+use crate::db::{self, print_table};
 
 use crate::container::Compression;
 use crate::utils::create_dir;
@@ -63,7 +63,7 @@ enum Commands {
     Init {
         /// Pack size (in GiB)
         #[arg(short, long, default_value_t = 4, value_name = "PACK_SIZE")]
-        pack_size: u64,
+        pack_size_gb: u64,
 
         /// Compression algorithm none for not compressing data or
         /// (format: <zalgo>:<level>, such as: zlib:+1 or zstd:-2)
@@ -73,6 +73,14 @@ enum Commands {
 
     /// Get the status of container
     Status,
+
+    /// Inspect loose and pack storages
+    Inspect {
+        /// Target store type, `loose`/`packs` to add to loose/packs.
+        /// Use `auto` (default) if you don't know.
+        #[arg(short, long, default_value = "auto")]
+        storage_type: String,
+    },
 
     /// Add files to container
     AddFiles {
@@ -222,7 +230,7 @@ pub fn stat(cnt: &Container) -> anyhow::Result<ContainerInfo> {
     // packs info from db
     let packs_db = cnt.packs_db();
     let packs_db_size = fs::metadata(&packs_db)?.len();
-    let (packs_count, packs_size) = db::stats(&packs_db)?;
+    let (packs_count, packs_size) = db::stat(&packs_db)?;
 
     // traverse packs and compute
     let iter_packs = traverse_packs(cnt).with_context(|| "traverse packs by iter")?;
@@ -258,6 +266,173 @@ pub fn stat(cnt: &Container) -> anyhow::Result<ContainerInfo> {
             packs_db: packs_db_size,
         },
     })
+}
+
+#[allow(clippy::too_many_lines)]
+pub fn run_cli(args: &[OsString]) -> anyhow::Result<()> {
+    let args = Args::parse_from(args);
+    // If container path provided, using it
+    // otherwise assume the `container` folder of cwd
+    let cnt_path = args.path.unwrap_or(env::current_dir()?.join("container"));
+
+    match args.cmd {
+        Commands::Init {
+            pack_size_gb,
+            compression,
+        } => {
+            // if target not exist create folder
+            if !cnt_path.exists() {
+                create_dir(&cnt_path)?;
+            }
+
+            let config = Config::new(pack_size_gb * 1024 * 1024, &compression);
+            let cnt = Container::new(&cnt_path);
+            cnt.initialize(&config).with_context(|| {
+                format!("unable to initialize container at {}", cnt.path.display())
+            })?;
+        }
+        #[allow(clippy::cast_precision_loss)]
+        Commands::Status => {
+            let cnt = Container::new(&cnt_path);
+            let cnt = match cnt.valid() {
+                Ok(cnt) => cnt,
+                Err(e) => anyhow::bail!(e),
+            };
+
+            let info = crate::stat(cnt).with_context(|| "unable to get container stat")?;
+            // print status to stdout
+            let state = String::new()
+                        // container info
+                        + "[container]\n"
+                        + &format!("Location = {}\n", info.location)
+                        + &format!("Id = {}\n", info.id)
+                        + &format!("ZipAlgo = {}\n", info.compression_algorithm)
+                        // count
+                        + "\n[container.count]\n"
+                        + &format!("Loose = {}\n", info.count.loose)
+                        + &format!("Packes = {}\n", info.count.packs)
+                        + &format!("Pack Files = {}\n", info.count.packs_file)
+                        // size
+                        + "\n[container.size]\n"
+                        + &format!("Loose = {}\n", human_bytes(info.size.loose as f64))
+                        + &format!("Packs = {}\n", human_bytes(info.size.packs as f64))
+                        + &format!("Packs Files = {}\n", human_bytes(info.size.packs_file as f64))
+                        + &format!("Packs DB = {}\n", human_bytes(info.size.packs_db as f64));
+
+            io::stdout().write_all(state.as_bytes())?;
+        }
+        #[allow(clippy::cast_precision_loss)]
+        Commands::AddFiles { paths, to } => {
+            let cnt = Container::new(&cnt_path);
+            let cnt = match cnt.valid() {
+                Ok(cnt) => cnt,
+                Err(e) => anyhow::bail!(e),
+            };
+
+            for path in paths {
+                if !path.is_file() {
+                    eprintln!("Error: {} is not a file, skipped", path.display());
+                    continue;
+                }
+
+                let to = match to.as_str() {
+                    "auto" => StoreType::Auto,
+                    "loose" => StoreType::Loose,
+                    "packs" => StoreType::Packs,
+                    _ => {
+                        eprintln!("unknown store '{to}', expect 'auto', 'loose' or 'packs'");
+                        std::process::exit(1);
+                    }
+                };
+                let (hash_hex, filename, expected_size) = add_file(&path, cnt, &to)?;
+                println!(
+                    "{} - {}: {}",
+                    hash_hex,
+                    filename,
+                    human_bytes(expected_size as f64)
+                );
+            }
+        }
+        Commands::Inspect { storage_type } => match storage_type.as_str() {
+            "loose" => {
+                // traverse loose and print path (hash) with size
+                let cnt = Container::new(&cnt_path);
+                cnt.valid()?;
+                println!(" hash | size ");
+                for p in traverse_loose(&cnt).with_context(|| "traverse loose by iter")? {
+                    let stat = fs::metadata(&p)?;
+                    let size = stat.len();
+
+                    println!("{} | {}", &p.display(), size);
+                }
+            }
+            "pack" => {
+                let cnt = Container::new(&cnt_path);
+                let db = cnt.packs_db();
+                let _ = print_table(&db);
+            }
+            _ => {
+                eprintln!("unknown store '{storage_type}', expect 'auto', 'loose' or 'packs'");
+                std::process::exit(1);
+            }
+        },
+        Commands::Optimize { cmd } => {
+            match cmd {
+                OptimizeCommands::Pack {
+                    no_compress,
+                    no_clean,
+                } => {
+                    let cnt = Container::new(&cnt_path);
+                    let cnt = match cnt.valid() {
+                        Ok(cnt) => cnt,
+                        Err(e) => anyhow::bail!(e),
+                    };
+                    // get
+                    let compression = if no_compress {
+                        Compression::from_str("none")?
+                    } else {
+                        Compression::from_str(DEFAULT_COMPRESSION_ALGORITHM)?
+                    };
+
+                    crate::maintain::_pack_loose_internal(cnt, &compression).unwrap_or_else(
+                        |err| {
+                            eprintln!("failed on pack loose {err}");
+                            std::process::exit(1);
+                        },
+                    );
+
+                    // TODO: clean loose that already packed
+                    if !no_clean {
+                        todo!()
+                    }
+                }
+                OptimizeCommands::Repack { compression } => {
+                    todo!()
+                }
+            }
+        }
+        Commands::CatFile { id, from } => {
+            let cnt = crate::Container::new(&cnt_path);
+            let from = match from.as_str() {
+                "auto" => StoreType::Auto,
+                "loose" => StoreType::Loose,
+                "packs" => StoreType::Packs,
+                _ => {
+                    eprintln!("unknown store '{from}', expect 'auto', 'loose' or 'packs'");
+                    std::process::exit(1);
+                }
+            };
+            let mut to = std::io::stdout();
+            let n = extract(&id, &cnt, &from, &mut to)?;
+
+            if n.is_none() {
+                eprintln!("object {id} not found");
+                std::process::exit(1)
+            }
+        } // TODO: validate/backup subcommands
+    };
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -384,148 +559,4 @@ mod tests {
 
         Ok(())
     }
-}
-
-#[allow(clippy::too_many_lines)]
-pub fn run_cli(args: &[OsString]) -> anyhow::Result<()> {
-    let args = Args::parse_from(args);
-    // If container path provided, using it
-    // otherwise assume the `container` folder of cwd
-    let cnt_path = args.path.unwrap_or(env::current_dir()?.join("container"));
-
-    match args.cmd {
-        Commands::Init {
-            pack_size,
-            compression,
-        } => {
-            // if target not exist create folder
-            if !cnt_path.exists() {
-                create_dir(&cnt_path)?;
-            }
-
-            let config = Config::new(pack_size, &compression);
-            let cnt = Container::new(&cnt_path);
-            cnt.initialize(&config).with_context(|| {
-                format!("unable to initialize container at {}", cnt.path.display())
-            })?;
-        }
-        #[allow(clippy::cast_precision_loss)]
-        Commands::Status => {
-            let cnt = Container::new(&cnt_path);
-            let cnt = match cnt.valid() {
-                Ok(cnt) => cnt,
-                Err(e) => anyhow::bail!(e),
-            };
-
-            let info = crate::stat(cnt).with_context(|| "unable to get container stat")?;
-            // print status to stdout
-            let state = String::new()
-                        // container info
-                        + "[container]\n"
-                        + &format!("Location = {}\n", info.location)
-                        + &format!("Id = {}\n", info.id)
-                        + &format!("ZipAlgo = {}\n", info.compression_algorithm)
-                        // count
-                        + "\n[container.count]\n"
-                        + &format!("Loose = {}\n", info.count.loose)
-                        + &format!("Packes = {}\n", info.count.packs)
-                        + &format!("Pack Files = {}\n", info.count.packs_file)
-                        // size
-                        + "\n[container.size]\n"
-                        + &format!("Loose = {}\n", human_bytes(info.size.loose as f64))
-                        + &format!("Packs = {}\n", human_bytes(info.size.packs as f64))
-                        + &format!("Packs Files = {}\n", human_bytes(info.size.packs_file as f64))
-                        + &format!("Packs DB = {}\n", human_bytes(info.size.packs_db as f64));
-
-            io::stdout().write_all(state.as_bytes())?;
-        }
-        #[allow(clippy::cast_precision_loss)]
-        Commands::AddFiles { paths, to } => {
-            let cnt = Container::new(&cnt_path);
-            let cnt = match cnt.valid() {
-                Ok(cnt) => cnt,
-                Err(e) => anyhow::bail!(e),
-            };
-
-            for path in paths {
-                if !path.is_file() {
-                    eprintln!("Error: {} is not a file, skipped", path.display());
-                    continue;
-                }
-
-                let to = match to.as_str() {
-                    "auto" => StoreType::Auto,
-                    "loose" => StoreType::Loose,
-                    "packs" => StoreType::Packs,
-                    _ => {
-                        eprintln!("unknown store '{to}', expect 'auto', 'loose' or 'packs'");
-                        std::process::exit(1);
-                    }
-                };
-                let (hash_hex, filename, expected_size) = add_file(&path, cnt, &to)?;
-                println!(
-                    "{} - {}: {}",
-                    hash_hex,
-                    filename,
-                    human_bytes(expected_size as f64)
-                );
-            }
-        }
-        Commands::Optimize { cmd } => {
-            match cmd {
-                OptimizeCommands::Pack {
-                    no_compress,
-                    no_clean,
-                } => {
-                    let cnt = Container::new(&cnt_path);
-                    let cnt = match cnt.valid() {
-                        Ok(cnt) => cnt,
-                        Err(e) => anyhow::bail!(e),
-                    };
-                    // get
-                    let compression = if no_compress {
-                        Compression::from_str("none")?
-                    } else {
-                        Compression::from_str(DEFAULT_COMPRESSION_ALGORITHM)?
-                    };
-
-                    crate::maintain::_pack_loose_internal(cnt, &compression).unwrap_or_else(
-                        |err| {
-                            eprintln!("failed on pack loose {err}");
-                            std::process::exit(1);
-                        },
-                    );
-
-                    // TODO: clean loose that already packed
-                    if !no_clean {
-                        todo!()
-                    }
-                }
-                OptimizeCommands::Repack { compression } => {
-                    todo!()
-                }
-            }
-        }
-        Commands::CatFile { id, from } => {
-            let cnt = crate::Container::new(&cnt_path);
-            let from = match from.as_str() {
-                "auto" => StoreType::Auto,
-                "loose" => StoreType::Loose,
-                "packs" => StoreType::Packs,
-                _ => {
-                    eprintln!("unknown store '{from}', expect 'auto', 'loose' or 'packs'");
-                    std::process::exit(1);
-                }
-            };
-            let mut to = std::io::stdout();
-            let n = extract(&id, &cnt, &from, &mut to)?;
-
-            if n.is_none() {
-                eprintln!("object {id} not found");
-                std::process::exit(1)
-            }
-        } // TODO: validate/backup subcommands
-    };
-
-    Ok(())
 }
