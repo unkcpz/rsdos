@@ -19,68 +19,50 @@ More design details can be found at [**design notes**](https://github.com/unkcpz
 
 ## Installation
 
-Planned installation methods include:
+You can install **RSDOS** using various methods. Pick whichever approach suits your workflow or distribution:
 
-- [ ] **cargo binstall**
-- [ ] **cargo install**
-- [ ] **curl**
-- [ ] **Python library** (providing both Python API and CLI)
-- [ ] **Apt / Pacman / Brew** (system packages)
+### Cargo install
 
-<!-- --- -->
+To build from source (requires Rust and Cargo):
+
+```bash
+cargo install rsdos
+```
+
+This compiles RSDOS locally and places the `rsdos` binary in your Cargo bin directory (often `~/.cargo/bin`).
+
+### Curl (Manual Download)
+
+For systems without Rust installed, or if you prefer manual downloads:
+
+1. Visit the [Releases page](https://github.com/unkcpz/rsdos/releases) to find a precompiled binary for your system.
+2. Download via `curl`, for example:
+   ```bash
+   curl -LO https://github.com/unkcpz/rsdos/releases/download/vX.Y.Z/rsdos-x86_64-unknown-linux-musl.tar.gz
+   ```
+3. Unpack and move the binary into your PATH:
+   ```bash
+   tar xvf rsdos-x86_64-unknown-linux-musl.tar.gz
+   sudo mv rsdos /usr/local/bin/
+   ```
+4. Test the installation:
+   ```bash
+   rsdos --help
+   ```
+
+### Python Library (PyPI)
+
+If you need the Python API or want to use RSDOS via Python scripts or Jupyter notebooks, you can install the Python wrapper:
+
+```bash
+pip install rsdos
+```
+
+(This also provides an `rsdos` CLI command if the package is set up accordingly.)
+
+<!-- ### System Package (Apt / Pacman / Brew) -->
 <!---->
-<!-- ## Installation -->
-<!---->
-<!-- You can install **RSDOS** using various methods. Pick whichever approach suits your workflow or distribution: -->
-<!---->
-<!-- ### 1. Cargo binstall -->
-<!---->
-<!-- If you have [cargo-binstall](https://github.com/cargo-bins/cargo-binstall) installed: -->
-<!-- ```bash -->
-<!-- cargo binstall rsdos -->
-<!-- ``` -->
-<!-- This automatically fetches and installs prebuilt binaries for your platform (if available). -->
-<!---->
-<!-- ### 2. Cargo install -->
-<!---->
-<!-- To build from source (requires Rust and Cargo): -->
-<!-- ```bash -->
-<!-- cargo install rsdos -->
-<!-- ``` -->
-<!-- This compiles RSDOS locally and places the `rsdos` binary in your Cargo bin directory (often `~/.cargo/bin`). -->
-<!---->
-<!-- ### 3. Curl (Manual Download) -->
-<!---->
-<!-- For systems without Rust installed, or if you prefer manual downloads: -->
-<!---->
-<!-- 1. Visit the [Releases page](https://github.com/unkcpz/rsdos/releases) to find a precompiled binary for your system. -->
-<!-- 2. Download via `curl`, for example: -->
-<!--    ```bash -->
-<!--    curl -LO https://github.com/unkcpz/rsdos/releases/download/vX.Y.Z/rsdos-x86_64-unknown-linux-musl.tar.gz -->
-<!--    ``` -->
-<!-- 3. Unpack and move the binary into your PATH: -->
-<!--    ```bash -->
-<!--    tar xvf rsdos-x86_64-unknown-linux-musl.tar.gz -->
-<!--    sudo mv rsdos /usr/local/bin/ -->
-<!--    ``` -->
-<!-- 4. Test the installation: -->
-<!--    ```bash -->
-<!--    rsdos --help -->
-<!--    ``` -->
-<!---->
-<!-- ### 4. Python Library (PyPI) -->
-<!---->
-<!-- If you need the Python API or want to use RSDOS via Python scripts or Jupyter notebooks, you can install the Python wrapper: -->
-<!---->
-<!-- ```bash -->
-<!-- pip install rsdos -->
-<!-- ``` -->
-<!---->
-<!-- (This also provides an `rsdos` CLI command if the package is set up accordingly.) -->
-<!---->
-<!-- ### 5. System Package (Apt / Pacman / Brew) -->
-<!---->
-<!-- *(Planned; not yet available. Check back for official package links.)* -->
+<!-- *(Planned; not yet available.)* -->
 <!---->
 <!-- - **Debian/Ubuntu (apt)**   -->
 <!--   ```bash -->
@@ -90,7 +72,7 @@ Planned installation methods include:
 <!---->
 <!-- - **Arch Linux (pacman)**   -->
 <!--   ```bash -->
-<!--   sudo pacman -S rsdos -->
+<!--   sudo yay -S rsdos -->
 <!--   ``` -->
 <!---->
 <!-- - **macOS (Homebrew)**   -->
@@ -98,18 +80,18 @@ Planned installation methods include:
 <!--   brew update -->
 <!--   brew install rsdos -->
 <!--   ``` -->
-<!---->
-<!-- Once installed, confirm everything is working by running: -->
-<!---->
-<!-- ```bash -->
-<!-- rsdos --version -->
-<!-- ``` -->
 
-### MSRV
+### Minimum Supported Rust Version 
 
-**Minimum Supported Rust Version (MSRV): 1.78**
+- MSRV: **1.78**
 
 ## Usage
+
+Once installed, confirm everything is working by running:
+
+```bash
+rsdos --version
+```
 
 ### CLI tool
 
@@ -230,7 +212,7 @@ with cnt.get_object_stream(stream_hash) as instream:
 
 ## Disclaimer
 
-- RSDOS is heavily inspired by aiidateam/disk-objectstore, this reimplementation aims to explore alternative design and performance optimizations.
+- `RSDOS` is heavily inspired by aiidateam/disk-objectstore, this reimplementation aims to explore alternative design and performance optimizations.
 
 ## Progress
 
