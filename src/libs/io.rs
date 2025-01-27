@@ -1,5 +1,6 @@
 use crate::Error;
 use bytes::Buf;
+use flate2::write::ZlibEncoder;
 use ring::digest::{Algorithm, Context, Digest};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
@@ -27,6 +28,44 @@ where
 }
 
 impl<W> Write for HashWriter<W>
+where
+    W: Write,
+{
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        // hasher compute hash from original data pass to buf
+        self.ctx.update(buf);
+
+        let n = self.writer.write(buf)?;
+        Ok(n)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.writer.flush()
+    }
+}
+
+pub struct EHashWriter<W: Write> {
+    pub writer: ZlibEncoder<W>,
+    pub ctx: Context,
+}
+
+impl<W> EHashWriter<W>
+where
+    W: Write,
+{
+    pub fn new(writer: ZlibEncoder<W>, algorithm: &'static Algorithm) -> Self {
+        let ctx = Context::new(algorithm);
+        Self { writer, ctx }
+    }
+
+    pub fn finish(mut self) -> Digest {
+        let _ = self.writer.flush();
+        let _ = self.writer.finish();
+        self.ctx.clone().finish()
+    }
+}
+
+impl<W> Write for EHashWriter<W>
 where
     W: Write,
 {
