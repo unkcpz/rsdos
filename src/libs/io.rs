@@ -1,12 +1,13 @@
 use crate::Error;
 use bytes::Buf;
-use ring::digest::{Algorithm, Context};
+use ring::digest::{Algorithm, Context, Digest};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
 use std::{fs, usize};
 
 pub struct HashWriter<W> {
     pub writer: W,
+    // XXX: make this a generic type?? Hasher? which has update/finish method
     pub ctx: Context,
 }
 
@@ -17,6 +18,11 @@ where
     pub fn new(writer: W, algorithm: &'static Algorithm) -> Self {
         let ctx = Context::new(algorithm);
         Self { writer, ctx }
+    }
+
+    pub fn finish(&mut self) -> Digest {
+        let _ = self.writer.flush();
+        self.ctx.clone().finish()
     }
 }
 
@@ -99,6 +105,7 @@ impl ReaderMaker for PathBuf {
     /// - none of above is true, regard it as "worth to compress!" (`MabyLargeText`)
     ///
     /// This avoid to run actuall compress which bring overhead.
+    /// XXX: rename to maybe_text_format, content is a bit vague
     fn maybe_content_format(&self) -> Result<MaybeContentFormat, Error> {
         let mut f = fs::OpenOptions::new().read(true).open(self)?;
         if f.metadata().unwrap().len() <= 850 {
@@ -216,7 +223,7 @@ mod tests {
 
         match p.maybe_content_format().unwrap() {
             MaybeContentFormat::ZFile([b0, _, _, _]) => assert_eq!(b0, 0x78),
-            _ => panic!("should be a ZFile compressed with zlib")
+            _ => panic!("should be a ZFile compressed with zlib"),
         };
 
         f.close().unwrap();
@@ -234,7 +241,7 @@ mod tests {
 
         match p.maybe_content_format().unwrap() {
             MaybeContentFormat::ZFile(b) => assert_eq!(b, [0x28, 0xB5, 0x2F, 0xFD]),
-            _ => panic!("should be a ZFile compressed with zlib")
+            _ => panic!("should be a ZFile compressed with zlib"),
         };
 
         f.close().unwrap();

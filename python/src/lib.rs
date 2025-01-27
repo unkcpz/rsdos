@@ -59,7 +59,7 @@ impl PyContainer {
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))
     }
 
-    fn insert_to_packs(&self, stream: Py<PyAny>) -> PyResult<(u64, String)> {
+    fn insert_to_packs(&self, stream: Py<PyAny>) -> PyResult<(u64, u64, String)> {
         let file_like = PyFileLikeObject::with_requirements(stream, true, false, false, false)?;
         let stream = Stream { fl: file_like };
 
@@ -72,7 +72,7 @@ impl PyContainer {
         py: Python,
         sources: Vec<Py<PyBytes>>,
         compress_mode: &str,
-    ) -> PyResult<Vec<(u64, String)>> {
+    ) -> PyResult<Vec<(u64, u64, String)>> {
         let sources = sources.iter().map(|s| {
             let b = s.bind(py);
             b.as_bytes().to_vec()
