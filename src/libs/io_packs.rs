@@ -224,10 +224,39 @@ pub fn insert<T>(source: T, cnt: &Container) -> Result<(u64, u64, String), Error
 where
     T: ReaderMaker,
 {
-    let (bytes_read, bytes_write, hash_hex) = insert_many(vec![source], cnt)?
+    // add to sandbox first, same as loose insert
+    let dpath_string = format!("{}.tmp", uuid::Uuid::new_v4());
+    let dst = cnt.sandbox().join(&dpath_string);
+    let mut sandbox_tmp = fs::File::create(&dst)?;
+
+    let mut hwriter = HashWriter::new(&mut sandbox_tmp, &digest::SHA256);
+
+    // NOTE: this chunk_size is the upbound of the buf, which in order to control the size of
+    // memory usage when coping large file. 512 KiB is way larger then the default buffer size in rust
+    // (4KiB). Large buffer may increase chance of loosing data.
+    let chunk_size = 524_288; // 512 KiB TODO: make it configurable??
+                              //
+    let mut stream = source.make_reader()?;
+    let bytes_copied = copy_by_chunk(&mut stream, &mut hwriter, chunk_size)
+        .map_err(|err| Error::ChunkCopyError { source: err })?;
+    let hash = hwriter.ctx.finish();
+    let hash_hex = hex::encode(hash);
+
+    let conn = Connection::open(cnt.packs_db())?;
+    if (db::select(&conn, hash_hex.as_str())?).is_some() {
+        eprintln!("{hash_hex} exist");
+        fs::remove_file(&dst)?;
+        return Ok((bytes_copied, bytes_copied, hash_hex));
+    }
+
+    // from sandbox to pack if not exist in pack
+    let (bytes_read, bytes_write, hash_hex) = insert_many(vec![dst], cnt)?
         .first()
         .map(|(n_r, n_w, hash)| (*n_r, *n_w, hash.clone()))
-        .unwrap();
+        .expect("problem when insert many to pack");
+
+    // remove tmp from sandbox
+    fs::remove_file(cnt.sandbox().join(&dpath_string))?;
 
     Ok((bytes_read, bytes_write, hash_hex))
 }
