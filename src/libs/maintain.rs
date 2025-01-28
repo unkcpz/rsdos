@@ -94,7 +94,7 @@ mod tests {
         // read from packs
         for (hash, content) in hash_content_map {
             let obj = packs_extract(&hash, &cnt).unwrap().unwrap();
-            assert_eq!(String::from_utf8(obj.to_bytes().unwrap()).unwrap(), content);
+            assert_eq!(String::from_utf8(obj.try_into().unwrap()).unwrap(), content);
         }
     }
 
@@ -122,7 +122,7 @@ mod tests {
         // read from packs
         for (hash, content) in hash_content_map {
             let obj = packs_extract(&hash, &cnt).unwrap().unwrap();
-            assert_eq!(String::from_utf8(obj.to_bytes().unwrap()).unwrap(), content);
+            assert_eq!(String::from_utf8(obj.try_into().unwrap()).unwrap(), content);
         }
     }
 }

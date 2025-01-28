@@ -5,7 +5,11 @@ use std::{
     str::FromStr,
 };
 
-use pyo3::{exceptions::{PyRuntimeError, PyValueError}, prelude::*, types::PyBytes};
+use pyo3::{
+    exceptions::{PyRuntimeError, PyValueError},
+    prelude::*,
+    types::PyBytes,
+};
 use pyo3_file::PyFileLikeObject;
 use rsdos::{
     container::{Compression, PACKS_DB},
@@ -100,7 +104,10 @@ impl PyContainer {
 
     // This is 2 times fast than write to writer from py world since there is no overhead to cross
     // boundary for every py object.
-    fn extract_many_from_loose(&self, hashkeys: Vec<String>) -> HashMap<String, Option<ByteString>> {
+    fn extract_many_from_loose(
+        &self,
+        hashkeys: Vec<String>,
+    ) -> HashMap<String, Option<ByteString>> {
         let mut buf = Vec::new();
         hashkeys
             .iter()
@@ -153,10 +160,9 @@ impl PyContainer {
 
         let res = objs
             .map(|obj| {
-                let hashkey = &obj.id;
-                let b = match obj.to_bytes() {
-                    Ok(b) => b,
-                    _ => b"".to_vec(), // Will this happened? should I just panic??
+                let hashkey = &obj.id.clone();
+                let Ok(b) = obj.try_into() else {
+                    panic!("Failed to convert `obj` into bytes.");
                 };
                 (hashkey.to_owned(), b)
             })
@@ -172,7 +178,6 @@ impl PyContainer {
     fn write_stream_from_packs(&self, hash: &str, py_filelike: Py<PyAny>) -> PyResult<()> {
         Stream::write_from_packs(&self.inner, hash, py_filelike)
     }
-
 
     // XXX: combine with get_n_objs and return dicts
     fn get_total_size(&self) -> PyResult<u64> {
@@ -271,4 +276,3 @@ fn pyrsdos(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_cli, m)?)?;
     Ok(())
 }
-
