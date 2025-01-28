@@ -10,9 +10,7 @@ use zstd::stream::write::Encoder as ZstdEncoder;
 
 use crate::container::Compression;
 use crate::db::PackEntry;
-use crate::io::{
-    copy_by_chunk, ByteString, EHashWriter, HashWriter, MaybeContentFormat, ReaderMaker,
-};
+use crate::io::{copy_by_chunk, ByteString, HashWriter, MaybeContentFormat, ReaderMaker};
 use crate::{db, Container};
 
 use crate::utils::Dir;
@@ -247,12 +245,12 @@ where
     let hash = hwriter.ctx.finish();
     let hash_hex = hex::encode(hash);
 
-    // let conn = Connection::open(cnt.packs_db())?;
-    // if (db::select(&conn, hash_hex.as_str())?).is_some() {
-    //     eprintln!("{hash_hex} exist");
-    //     fs::remove_file(&dst)?;
-    //     return Ok((bytes_copied, bytes_copied, hash_hex));
-    // }
+    let conn = Connection::open(cnt.packs_db())?;
+    if (db::select(&conn, hash_hex.as_str())?).is_some() {
+        eprintln!("{hash_hex} exist");
+        fs::remove_file(&dst)?;
+        return Ok((bytes_copied, bytes_copied, hash_hex));
+    }
 
     // from sandbox to pack if not exist in pack
     let (bytes_read, bytes_write, hash_hex) = insert_many(vec![dst], cnt)?
@@ -260,8 +258,8 @@ where
         .map(|(n_r, n_w, hash)| (*n_r, *n_w, hash.clone()))
         .expect("problem when insert many to pack");
 
-    // // remove tmp from sandbox
-    // fs::remove_file(cnt.sandbox().join(&dpath_string))?;
+    // remove tmp from sandbox
+    fs::remove_file(cnt.sandbox().join(&dpath_string))?;
 
     Ok((bytes_read, bytes_write, hash_hex))
 }
@@ -377,16 +375,12 @@ where
             // hash.
 
             let mut stream = rmaker.make_reader()?;
-            dbg!(rmaker.maybe_content_format());
 
             let (bytes_read, hash_hex, compressed) =
                 match (compression, rmaker.maybe_content_format()) {
                     (Compression::Zlib(level), Ok(MaybeContentFormat::MaybeLargeText)) => {
-                        // FIXME: hash is not consistent from source for some binary like PDF file
-                        // https://github.com/rust-lang/flate2-rs/issues/446
-                        dbg!("IHHHHH");
                         let writer = ZlibEncoder::new(&mut cwp, flate2::Compression::new(*level));
-                        let mut hwriter = EHashWriter::new(writer, dig_algo);
+                        let mut hwriter = HashWriter::new(writer, dig_algo);
                         let bytes_copied = copy_by_chunk(&mut stream, &mut hwriter, chunk_size)?;
 
                         let hash = hwriter.finish();

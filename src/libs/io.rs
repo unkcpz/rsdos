@@ -1,59 +1,34 @@
 use crate::Error;
 use bytes::Buf;
-use flate2::write::ZlibEncoder;
 use ring::digest::{Algorithm, Context, Digest};
+use std::fs;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
-use std::{fs, usize};
 
-pub struct HashWriter<W> {
+pub trait Finishable: Write {
+    fn finish(self) -> io::Result<()>;
+}
+
+// Implement `Finishable` for any type that implements `Write` without a specific finish behavior.
+impl<W: Write> Finishable for W {
+    fn finish(mut self) -> io::Result<()> {
+        self.flush()
+    }
+}
+
+pub struct HashWriter<W>
+where
+    W: Finishable,
+{
     pub writer: W,
-    // XXX: make this a generic type?? Hasher? which has update/finish method
     pub ctx: Context,
 }
 
 impl<W> HashWriter<W>
 where
-    W: Write,
+    W: Finishable + Write,
 {
     pub fn new(writer: W, algorithm: &'static Algorithm) -> Self {
-        let ctx = Context::new(algorithm);
-        Self { writer, ctx }
-    }
-
-    pub fn finish(&mut self) -> Digest {
-        let _ = self.writer.flush();
-        self.ctx.clone().finish()
-    }
-}
-
-impl<W> Write for HashWriter<W>
-where
-    W: Write,
-{
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        // hasher compute hash from original data pass to buf
-        self.ctx.update(buf);
-
-        let n = self.writer.write(buf)?;
-        Ok(n)
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        self.writer.flush()
-    }
-}
-
-pub struct EHashWriter<W: Write> {
-    pub writer: ZlibEncoder<W>,
-    pub ctx: Context,
-}
-
-impl<W> EHashWriter<W>
-where
-    W: Write,
-{
-    pub fn new(writer: ZlibEncoder<W>, algorithm: &'static Algorithm) -> Self {
         let ctx = Context::new(algorithm);
         Self { writer, ctx }
     }
@@ -65,15 +40,16 @@ where
     }
 }
 
-impl<W> Write for EHashWriter<W>
+impl<W> Write for HashWriter<W>
 where
     W: Write,
 {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        // hasher compute hash from original data pass to buf
-        self.ctx.update(buf);
-
+        // Write first and then update the digest with exact n bytes.
+        // The order matters since for zlib encoder it tries to use all buffer
+        // see https://github.com/rust-lang/flate2-rs/discussions/447
         let n = self.writer.write(buf)?;
+        self.ctx.update(&buf[..n]);
         Ok(n)
     }
 
