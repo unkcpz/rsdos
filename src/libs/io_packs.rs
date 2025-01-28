@@ -379,11 +379,8 @@ where
             let (bytes_read, hash_hex, compressed) =
                 match (compression, rmaker.maybe_content_format()) {
                     (Compression::Zlib(level), Ok(MaybeContentFormat::MaybeLargeText)) => {
-                        // FIXME: hash is not consistent from source for some binary like PDF file
-                        // https://github.com/rust-lang/flate2-rs/issues/446
-                        let mut writer =
-                            ZlibEncoder::new(&mut cwp, flate2::Compression::new(*level));
-                        let mut hwriter = HashWriter::new(&mut writer, dig_algo);
+                        let writer = ZlibEncoder::new(&mut cwp, flate2::Compression::new(*level));
+                        let mut hwriter = HashWriter::new(writer, dig_algo);
                         let bytes_copied = copy_by_chunk(&mut stream, &mut hwriter, chunk_size)?;
 
                         let hash = hwriter.finish();
