@@ -5,6 +5,7 @@ description = "key-value store for file I/O on disk"
 authors = ["Jusong Yu <jusong.d.yu@gmail.com>"]
 readme = "README.md"
 repository = "https://github.com/unkcpz/rsdos"
+homepage = "https://github.com/unkcpz/rsdos"
 license = "MIT OR Apache-2.0"
 rust-version = "1.78.0"
 edition = "2021"
