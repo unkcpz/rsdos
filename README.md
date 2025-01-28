@@ -21,34 +21,19 @@ More design details can be found at [**design notes**](https://github.com/unkcpz
 
 You can install **RSDOS** using various methods. Pick whichever approach suits your workflow or distribution:
 
-### Cargo install
+### Install prebuilt binaries via shell
 
-To build from source (requires Rust and Cargo):
-
-```bash
-cargo install rsdos
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/unkcpz/rsdos/releases/download/v0.2.0/rsdos-installer.sh | sh
 ```
 
-This compiles RSDOS locally and places the `rsdos` binary in your Cargo bin directory (often `~/.cargo/bin`).
+```sh
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/unkcpz/rsdos/releases/download/v0.2.0/rsdos-installer.ps1 | iex"
+```
 
-### Curl (Manual Download)
-
-For systems without Rust installed, or if you prefer manual downloads:
-
-1. Visit the [Releases page](https://github.com/unkcpz/rsdos/releases) to find a precompiled binary for your system.
-2. Download via `curl`, for example:
-   ```bash
-   curl -LO https://github.com/unkcpz/rsdos/releases/download/vX.Y.Z/rsdos-x86_64-unknown-linux-musl.tar.gz
-   ```
-3. Unpack and move the binary into your PATH:
-   ```bash
-   tar xvf rsdos-x86_64-unknown-linux-musl.tar.gz
-   sudo mv rsdos /usr/local/bin/
-   ```
-4. Test the installation:
-   ```bash
-   rsdos --help
-   ```
+```sh
+brew install unkcpz/tap/rsdos
+```
 
 ### Python Library (PyPI)
 
@@ -60,26 +45,15 @@ pip install rsdos
 
 (This also provides an `rsdos` CLI command if the package is set up accordingly.)
 
-<!-- ### System Package (Apt / Pacman / Brew) -->
-<!---->
-<!-- *(Planned; not yet available.)* -->
-<!---->
-<!-- - **Debian/Ubuntu (apt)**   -->
-<!--   ```bash -->
-<!--   sudo apt-get update -->
-<!--   sudo apt-get install rsdos -->
-<!--   ``` -->
-<!---->
-<!-- - **Arch Linux (pacman)**   -->
-<!--   ```bash -->
-<!--   sudo yay -S rsdos -->
-<!--   ``` -->
-<!---->
-<!-- - **macOS (Homebrew)**   -->
-<!--   ```bash -->
-<!--   brew update -->
-<!--   brew install rsdos -->
-<!--   ``` -->
+### Cargo install
+
+To build from source (requires Rust and Cargo):
+
+```bash
+cargo install rsdos
+```
+
+This compiles RSDOS locally and places the `rsdos` binary in your Cargo bin directory (often `~/.cargo/bin`).
 
 ### Minimum Supported Rust Version 
 
