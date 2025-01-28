@@ -41,7 +41,7 @@ name = "rsdos"
 path = "src/lib.rs"
 
 [dev-dependencies]
-rand = "0.8.5"
+rand = "0.9.0"
 rstest = "0.22.0"
 
 [profile.release]
