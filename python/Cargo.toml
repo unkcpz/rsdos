@@ -1,6 +1,6 @@
 [package]
 name = "pyrsdos"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Jusong Yu <jusong.d.yu@gmail.com>"]
 rust-version = "1.78.0"

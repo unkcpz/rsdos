@@ -1,6 +1,6 @@
 [package]
 name = "rsdos"
-version = "0.1.0"
+version = "0.2.0"
 description = "key-value store for file I/O on disk"
 authors = ["Jusong Yu <jusong.d.yu@gmail.com>"]
 readme = "README.md"
