@@ -4,7 +4,7 @@ use flate2::write::ZlibEncoder;
 use ring::digest;
 use rusqlite::{params, params_from_iter, Connection};
 use std::fs::{self, File};
-use std::io::{self, Read, Seek, SeekFrom, Take, Write};
+use std::io::{self, Read, Seek, SeekFrom, Take};
 use std::path::{Path, PathBuf};
 use zstd::stream::write::Encoder as ZstdEncoder;
 
