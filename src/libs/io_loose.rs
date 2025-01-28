@@ -22,18 +22,21 @@ impl LObject {
             expected_size,
         }
     }
+}
 
-    #[allow(dead_code)]
-    fn to_bytes(&self) -> Result<ByteString, Error> {
-        let mut rdr = self.make_reader()?;
+impl TryFrom<LObject> for ByteString {
+    type Error = Error;
+
+    fn try_from(obj: LObject) -> Result<Self, Self::Error> {
+        let mut rdr = obj.make_reader()?;
         let mut buf = vec![];
         let n = std::io::copy(&mut rdr, &mut buf)?;
         // FIXME: (v2) use CRC32 checksum
-        if n == self.expected_size {
+        if n == obj.expected_size {
             Ok(buf)
         } else {
             Err(Error::UnexpectedCopySize {
-                expected: self.expected_size,
+                expected: obj.expected_size,
                 got: n,
             })
         }
@@ -152,7 +155,7 @@ mod tests {
 
         let obj = extract(&hashkey, &cnt).unwrap().unwrap();
         assert_eq!(
-            String::from_utf8(obj.to_bytes().unwrap()).unwrap(),
+            String::from_utf8(obj.try_into().unwrap()).unwrap(),
             String::from_utf8(b"test 0".to_vec()).unwrap(),
         );
     }
@@ -188,7 +191,7 @@ mod tests {
             count += 1;
             let content = hash_content_map.get(&obj.id).unwrap();
             assert_eq!(
-                String::from_utf8(obj.to_bytes().unwrap()).unwrap(),
+                String::from_utf8(obj.try_into().unwrap()).unwrap(),
                 content.to_owned()
             );
         }

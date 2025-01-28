@@ -517,7 +517,7 @@ mod tests {
             // find content from packs file
             let obj = io_packs::extract(&hash_hex, &cnt)?.unwrap();
             assert_eq!(
-                String::from_utf8(obj.to_bytes().unwrap()).unwrap(),
+                String::from_utf8(obj.try_into().unwrap()).unwrap(),
                 expected_content
             );
         }
@@ -553,7 +553,7 @@ mod tests {
             // find content from packs file
             let obj = io_packs::extract(&hash_hex, &cnt)?.unwrap();
             assert_eq!(
-                String::from_utf8(obj.to_bytes().unwrap()).unwrap(),
+                String::from_utf8(obj.try_into().unwrap()).unwrap(),
                 expected_content
             );
         }

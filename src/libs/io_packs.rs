@@ -46,10 +46,13 @@ impl PObject {
             compressed,
         }
     }
+}
 
-    #[allow(dead_code)]
-    pub fn to_bytes(&self) -> Result<ByteString, Error> {
-        let mut rdr = self.make_reader()?;
+impl TryFrom<PObject> for ByteString {
+    type Error = Error;
+
+    fn try_from(obj: PObject) -> Result<Self, Self::Error> {
+        let mut rdr = obj.make_reader()?;
         let mut buf = vec![];
         let n = std::io::copy(&mut rdr, &mut buf)?;
         // FIXME: (v2) flasky assert, less valid if read and write size is different after compression
@@ -57,11 +60,11 @@ impl PObject {
         // equal to self.size. But the purpose of this test is for data integrity, the better way
         // is to using a cheap checksum (CRC32 for error detecting, md5/sha is for crypt) as the
         // content header.
-        if n == self.raw_size {
+        if n == obj.raw_size {
             Ok(buf)
         } else {
             Err(Error::UnexpectedCopySize {
-                expected: self.raw_size,
+                expected: obj.raw_size,
                 got: n,
             })
         }
@@ -466,7 +469,7 @@ mod tests {
         // also check pack DB point to correct location to extract content
         let obj = extract(&hash, &cnt).unwrap().unwrap();
         assert_eq!(
-            String::from_utf8(obj.to_bytes().unwrap()).unwrap(),
+            String::from_utf8(obj.try_into().unwrap()).unwrap(),
             "test 0".to_string()
         );
 
@@ -482,7 +485,7 @@ mod tests {
 
         let obj = extract(&hash, &cnt).unwrap().unwrap();
         assert_eq!(
-            String::from_utf8(obj.to_bytes().unwrap()).unwrap(),
+            String::from_utf8(obj.try_into().unwrap()).unwrap(),
             "test 1".to_string()
         );
     }
@@ -508,7 +511,7 @@ mod tests {
 
         let obj = extract(&hash, &cnt).unwrap().unwrap();
         assert_eq!(
-            String::from_utf8(obj.to_bytes().unwrap()).unwrap(),
+            String::from_utf8(obj.try_into().unwrap()).unwrap(),
             "test 0".to_string()
         );
     }
@@ -544,7 +547,7 @@ mod tests {
 
         for (hash, content) in hash_content_map {
             let obj = extract(&hash, &cnt).unwrap().unwrap();
-            assert_eq!(String::from_utf8(obj.to_bytes().unwrap()).unwrap(), content);
+            assert_eq!(String::from_utf8(obj.try_into().unwrap()).unwrap(), content);
         }
     }
 
@@ -569,7 +572,7 @@ mod tests {
 
         for (hash, content) in hash_content_map {
             let obj = extract(&hash, &cnt).unwrap().unwrap();
-            assert_eq!(String::from_utf8(obj.to_bytes().unwrap()).unwrap(), content);
+            assert_eq!(String::from_utf8(obj.try_into().unwrap()).unwrap(), content);
         }
     }
 
@@ -624,7 +627,7 @@ mod tests {
             count += 1;
             let content = hash_content_map.get(&obj.id).unwrap();
             assert_eq!(
-                String::from_utf8(obj.to_bytes().unwrap()).unwrap(),
+                String::from_utf8(obj.try_into().unwrap()).unwrap(),
                 content.to_owned()
             );
         }
@@ -668,7 +671,7 @@ mod tests {
             count += 1;
             let content = hash_content_map.get(&obj.id).unwrap();
             assert_eq!(
-                String::from_utf8(obj.to_bytes().unwrap()).unwrap(),
+                String::from_utf8(obj.try_into().unwrap()).unwrap(),
                 content.to_owned()
             );
         }
