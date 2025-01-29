@@ -22,7 +22,7 @@ fallible-streaming-iterator = "0.1.9"
 flate2 = { version = "1.0.31", features = ["zlib-ng"] }
 hex = "0.4.3"
 human_bytes = { version = "0.4.3", features = ["fast"] }
-indicatif = "0.17.9"
+indicatif = "0.17.11"
 ring = "0.17.8"
 rusqlite = { version = "0.32.0", features = ["bundled"] }
 serde = { version = "1.0.217", features = ["derive"] }
