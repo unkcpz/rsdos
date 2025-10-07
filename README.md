@@ -187,6 +187,7 @@ with cnt.get_object_stream(stream_hash) as instream:
 ## Disclaimer
 
 - `RSDOS` is heavily inspired by aiidateam/disk-objectstore, this reimplementation aims to explore alternative design and performance optimizations.
+- [benchmark](https://github.com/unkcpz/rsdos/pull/10) shows without change the design the performance increase 100%
 
 ## Progress
 
